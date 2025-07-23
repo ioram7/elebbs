@@ -545,6 +545,10 @@ function  tInputObj.ReadKey: Char;                        { CRT-alike readkey }
 var TempChar: Char;
     DoAbort : Boolean;
 begin
+ {$IFDEF WITH_DEBUG}
+   DebugObj.DebugLog(logInOut, 'ReadKey (begin)');
+ {$ENDIF}
+
  {$IFDEF WINGUI}
    {$IFDEF WITH_FULL}
      if NOT CheckAll then Application.Terminate;
@@ -578,6 +582,14 @@ begin
   {$ENDIF}
 
   ReadKey := TempChar;
+
+ {$IFDEF WITH_DEBUG}
+   DebugObj.DebugLog(logInOut, 'ReadKey: chr(' + FStr(ord(TempChar)) + ')');
+ {$ENDIF}
+
+ {$IFDEF WITH_DEBUG}
+   DebugObj.DebugLog(logInOut, 'ReadKey (end)');
+ {$ENDIF}
 end; { func. ReadKey }
 
 (*-+-*-+-*-+-*-+-*-+-*-+-*-+-*-+-*-+-*-+-*-+-*-+-*-+-*-+-*-+-*-+-*-+-*-+-*-*)

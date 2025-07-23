@@ -52,15 +52,18 @@ type tSMTPclient = class(tTcpClient)
         property ShowLine : ShowLineProc READ fShowLine WRITE fShowLine;
 
         function Quit: Boolean;
-        function Helo(Domain: String; sendEnhanced: boolean): Boolean;
+        function Helo(Domain: String): Boolean;
+        {IORAM 2007-10-13}
+        function Ehlo(Domain: String): Boolean;
         function base64_encode(strIn: String): String;
         function Auth(SmtpUsername, SmtpPassword: String): Boolean;
+        {/IORAM}
         function Mail(MsgFrom: String): Boolean;
         function Rcpt(MsgTo: String): Boolean;
         function Rset: Boolean;
         function Vrfy(Mailbox: String): Boolean;
         function Noop: Boolean;
-        function Data(var MsgText: MessageTextType; var ReplyTo: String): Boolean;
+        function Data(var MsgText: MessageTextType; var SmtpReplyTo: Boolean; var MsgFrom: String): Boolean;
 
         procedure ShowAllText(Require: Boolean);
         function CheckError(TestSet: Array of Word; var LastErr: Longint): Boolean;
@@ -130,24 +133,36 @@ end; { func. Quit }
 
 (*-+-*-+-*-+-*-+-*-+-*-+-*-+-*-+-*-+-*-+-*-+-*-+-*-+-*-+-*-+-*-+-*-+-*-+-*-*)
 
-function tSMTPClient.Helo(Domain: String; sendEnhanced: boolean): Boolean;
+function tSMTPClient.Helo(Domain: String): Boolean;
 begin
-  if (sendEnhanced) then
-	  SendStrLn('HELO ' + Domain)
-	   else SendStrLn('EHLO ' + Domain);
+  SendStrLn('HELO ' + Domain);
 
   Result := CheckError([250], fLastError);
-
-	if (sendEnhanced) AND (Result) then
-	  begin
-	    Result := false;
-	    
-	 		While(RecvStrLn(fErrorStr, false)) do
-				if (Pos('AUTH LOGIN PLAIN', fErrorStr) > 0) then Result := true;
-		end; { if }
-	
   ShowAllText(false);
 end; { func. Helo }
+
+{IORAM 2007-10-13}
+(*-+-*-+-*-+-*-+-*-+-*-+-*-+-*-+-*-+-*-+-*-+-*-+-*-+-*-+-*-+-*-+-*-+-*-+-*-*)
+function tSMTPClient.Ehlo(Domain: String): Boolean;
+var TmpResp : Boolean;
+begin
+	TmpResp := false;
+	
+  SendStrLn('EHLO ' + Domain);
+
+  WaitForData;
+
+  RecvStrLn(fErrorStr, false);
+
+	Result := Pos('250', fErrorStr) > 0;
+
+ 	While(RecvStrLn(fErrorStr, false)) do
+		if (Pos('AUTH LOGIN PLAIN', fErrorStr) > 0) then TmpResp := true;
+	
+	Result := Result and TmpResp;
+
+  ShowAllText(false);
+end; { func. Ehlo }
 
 (*-+-*-+-*-+-*-+-*-+-*-+-*-+-*-+-*-+-*-+-*-+-*-+-*-+-*-+-*-+-*-+-*-+-*-+-*-*)
 
@@ -215,6 +230,7 @@ end; { func. base64_encode }
 
 function tSMTPClient.Auth(SmtpUsername, SmtpPassword: String): Boolean;
 begin
+	
 	{ The correct form of the AUTH PLAIN value is 'authid\0userid\0passwd'
     where '\0' is the null byte. }
 	
@@ -224,6 +240,7 @@ begin
   ShowAllText(false);
 end; { func. Auth }
 
+{/IORAM}
 (*-+-*-+-*-+-*-+-*-+-*-+-*-+-*-+-*-+-*-+-*-+-*-+-*-+-*-+-*-+-*-+-*-+-*-+-*-*)
 
 function tSmtpClient.Mail(MsgFrom: String): Boolean;
@@ -276,7 +293,7 @@ end; { func. Noop }
 
 (*-+-*-+-*-+-*-+-*-+-*-+-*-+-*-+-*-+-*-+-*-+-*-+-*-+-*-+-*-+-*-+-*-+-*-+-*-*)
 
-function tSmtpClient.Data(var MsgText: MessageTextType; var ReplyTo: String): Boolean;
+function tSmtpClient.Data(var MsgText: MessageTextType; var SmtpReplyTo: Boolean; var MsgFrom: String): Boolean;
 var TempStr: AnsiString;
     TxtPtr : Longint;
     CheckKb: EventTimer;
@@ -298,9 +315,10 @@ begin
 
   NewTimer(CheckKB, Secs2Tics(KeyboardCheckSecs));
 
-  {-- IORAM Adding the Reply-to header -------------------------------------}
-  if (ReplyTo <> '') then
-  	SendStrLn('Reply-To: <' + ReplyTo + '>');
+  {-- IORAM 2007-10-12 -- ADDING REPLY-TO:  --}
+  if SmtpReplyTo then
+  	SendStrLn('Reply-To: <'+MsgFrom+'>');
+  {-- /IORAM --}
 
   {-- Now actually send the message ----------------------------------------}
   While (TxtPtr <= (StrLen(MsgText) + 01)) do

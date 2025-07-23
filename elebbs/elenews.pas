@@ -522,10 +522,17 @@ begin
                   DestFido := Copy(ParamStr(Counter), 3, 255);
                 end; { if }
           'U' : begin
-                  UseUsername := Copy(ParamStr(Counter), 3, 255);
+                  UseUsername := '';
+                  UsePassword := Copy(ParamStr(Counter), 3, 255);
 
-                  UsePassword := Copy(UseUsername, Pos('@', UseUsername) + 1, 255);
-                  UseUsername := Copy(UseUsername, 1, Pos('@', UseUsername) - 1);
+                  while (Pos('@', UsePassword) > 0) do
+                    begin
+                      UseUsername := UseUsername + Copy(UsePassword, 1, Pos('@', UsePassword));
+                      Delete(UsePassword, 1, Pos('@', UsePassword));
+                    end;
+
+                  if (UseUsername <> '') and (UseUsername[Length(UseUsername)] = '@') then
+                    Dec(UseUsername[0]);
                 end; { if }
           'I' : begin
                   PktPath := ForceBack(Copy(ParamStr(Counter), 3, 255));

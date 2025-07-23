@@ -21,7 +21,7 @@ UNIT FTPSERV;
 ** Copyright (c) 2000 by Maarten Bekers
 **
 ** Created : 05-May-2000
-** Last update : 03-Aug-2007
+** Last update : 29-06-2008
 **
 *)
 
@@ -67,47 +67,36 @@ UNIT FTPSERV;
 (*-+-*-+-*-+-*-+-*-+-*-+-*-+-*-+-*-+-*-+-*-+-*-+-*-+-*-+-*-+-*-+-*-+-*-+-*-*)
 
 uses
-	TcpSrv;
+	TcpCli, TcpSrv, Threads, Global, CfgRec;
 
 const
 	ftp_ListenThreadEnded   : Boolean = False;
-
-var
-	FtpServerSocket: TTcpServer;
-
-procedure ftp_SetupServer;
-procedure ftp_initserver;
-
-function  ftp_ServerThread(P: pointer): Longint;
-function  ftp_ExecuteConnection(P: Pointer): Longint;
-
-(*-+-*-+-*-+-*-+-*-+-*-+-*-+-*-+-*-+-*-+-*-+-*-+-*-+-*-+-*-+-*-+-*-+-*-+-*-*)
- IMPLEMENTATION
-(*-+-*-+-*-+-*-+-*-+-*-+-*-+-*-+-*-+-*-+-*-+-*-+-*-+-*-+-*-+-*-+-*-+-*-+-*-*)
-
-uses Crt, Global, CfgRec, CentrStr, ScrnU, LongStr, StUtils,
-      GenCfg, JDates, IoRes_Un, SysUtils, ReadCfg,
-       WinTitle, GenFile, MemMan, Cases, WordStr, Crc_Unit, BbsKey,
-        FileRout, Mail, MkMsgAbs, MkOpen, SockFunc, StrPath, SockDef,
-          Access_U, TcpCli, Threads, Windows, Ellog_U,
-          FileObj, BitWise, Debug_U, Aptimer, Cfgfile,
-           ChrIso, User_U, SysVars, ObjDec, Ra2Fdb, esrv_u, Dos,
-            FileSys, MgrFdb, limit_u, UnixDate, MultiLn, FtpServDiz;
-
-(*-+-*-+-*-+-*-+-*-+-*-+-*-+-*-+-*-+-*-+-*-+-*-+-*-+-*-+-*-+-*-+-*-+-*-+-*-*)
+	ftp_ServerRunning : Boolean = False;
 
 type
-	FtpCommandset = (ftpUser, ftpPass, ftpRetr, ftpError, ftpHelp,
-                     ftpQuit, ftpPort, ftpList, ftpAllo,  ftpMkd,
-                     ftpMode, ftpNlst, ftpNoop, ftpPwd,   ftpSmnt,
-                     ftpCdUp, ftpCwd,  ftpStru, ftpType,  ftpSyst,
-                     ftpOpts, ftpRnFr, ftpRnTo, ftpSite,  ftpDele,
-                     ftpStat, ftpRmd,  ftpAppe, ftpRest,  ftpAbor,
-                     ftpPasv, ftpStor);
+	RateObj = object
+	{
+		Calculates transfer rate based on average of rolling sample set
+	}
+		public
+			constructor Init;
+			destructor  Done;
+			procedure   incr_bytes(bytes: LongInt);
+			function    calc_rate: LongInt;
+			function    throttle(WantBytes: LongInt): LongInt;
+		private
+			tHist     : array[0..7] of Comp;
+			bHist     : array[0..7] of LongInt;
+			last      : Byte;
+			MaxRate   : LongInt;
+			StatsLock,
+			LimitLock : TExclusiveObj;
+		end; { RateObj }
 
 	pFtpConnectionRec   = ^ftpConnectionRec;
 	ftpConnectionRec    = record
-			IpAddr      : String[36];
+			{SessionLock: TExclusiveObj; XXXTODO: need this so SrvData doesn't disappear while we're using it }
+			IpAddr      : String[36]; { XXXBUGBUG: is this used? }
 			DataThread  : TTcpServer;
 			FtpSession  : TTcpClient;
 			Validated   : Boolean;
@@ -124,31 +113,59 @@ type
 			CurArea     : Longint;
 			ResumeOfs   : Longint;
 			Anonymous   : Boolean;
-			VirtIdxBuff : AnsiString;   { buffer for the VirtualIndex file contents }
-			VirtIdxArea : LongInt;      { the area our VirtualIndex buffer pertains to }
+			{isSysop     : Boolean; XXXTODO: username comparison is tedious and limited }
+			IndexBuff00,
+			IndexBuff02 : AnsiString;   { buffers for the virtual index files }
+			IndexArea   : LongInt;      { the area our virtual index buffers pertain to }
 			LogOnTime   : String[5];    { start time of /this/ session }
+			SessionRxRate,
+			SessionTxRate: RateObj;
 		end; { ftpConnectionRec = record }
 
+var
+	FtpServerSocket: TTcpServer;
+	GlobalRxRate,
+	GlobalTxRate   : RateObj;       { track global transmission rates }
+
+procedure ftp_SetupServer;
+procedure ftp_initserver;
+
+function  ftp_ServerThread(P: pointer): Longint;
+function  ftp_ExecuteConnection(P: Pointer): Longint;
+
+(*-+-*-+-*-+-*-+-*-+-*-+-*-+-*-+-*-+-*-+-*-+-*-+-*-+-*-+-*-+-*-+-*-+-*-+-*-*)
+ IMPLEMENTATION
+(*-+-*-+-*-+-*-+-*-+-*-+-*-+-*-+-*-+-*-+-*-+-*-+-*-+-*-+-*-+-*-+-*-+-*-+-*-*)
+
+uses Crt, CentrStr, ScrnU, LongStr, StUtils,
+      GenCfg, JDates, IoRes_Un, SysUtils, ReadCfg,
+       WinTitle, GenFile, MemMan, Cases, WordStr, Crc_Unit, BbsKey,
+        FileRout, Mail, MkMsgAbs, MkOpen, SockFunc, StrPath, SockDef,
+          Access_U, Windows, Ellog_U,
+          FileObj, BitWise, Debug_U, Aptimer, Cfgfile,
+           ChrIso, User_U, SysVars, ObjDec, Ra2Fdb, esrv_u, Dos,
+            FileSys, MgrFdb, limit_u, UnixDate, MultiLn, FtpServDiz;
+
+(*-+-*-+-*-+-*-+-*-+-*-+-*-+-*-+-*-+-*-+-*-+-*-+-*-+-*-+-*-+-*-+-*-+-*-+-*-*)
+
+type
+	FtpCommandset = (ftpUser, ftpPass, ftpRetr, ftpError, ftpHelp,
+	                  ftpQuit, ftpPort, ftpList, ftpAllo, ftpMkd,
+	                  ftpMode, ftpNlst, ftpNoop, ftpPwd,  ftpSmnt,
+	                  ftpCdUp, ftpCwd,  ftpStru, ftpType, ftpSyst,
+	                  ftpOpts, ftpRnFr, ftpRnTo, ftpSite, ftpDele,
+	                  ftpStat, ftpRmd,  ftpAppe, ftpRest, ftpAbor,
+	                  ftpPasv, ftpStor);
+
 const
-	FtpServerPort       = 21;
-	FtpMaxSessions      = 10;
-	SecsTimeOut         = 10 * 60;   { Timeout after 10 minutes inactivity }
-	ServerName          : String = 'EleBBS - FTP server running at %s';
+	FtpMaxSessions  = 10;
+	FtpServerPort   = 21;
+	SecsTimeOut     = 10 * 60;   { Timeout after 10 minutes inactivity }
+	ServerName      : String = 'EleBBS - FTP server running at %s';
+	ftpIgnoreEmptyDupe : Boolean = False;     { /FTPNODUPE0: empty files will not be considered dupes on upload check }
+	Debug_DizNoExec : Boolean = False;
 
-	{-- command line options --}
-	ftp_AllowAnonymous      : Boolean = False;                          { -XA                }
-	ftp_PasvSrvIP           : Array[1..4] of Byte = (0, 0, 0, 0);       { -PASVSRVIP:addr    }
-	ftp_PasvPorts           : Array[1..2] of SmallWord = (1025, 65535); { -PASVPORTS:x-y     }
-	ftp_PasvOffset          : SmallWord = 0;                            { -PASVOFFSET:x      }
-	ftp_DynIp				: String = '';
-	ftp_TransferLog         : String = '';                              { -FTPXLOG:filename  }
-	ftp_VirtualIndex        : String = '';                              { -FTPINDeX:filename }
-	ftp_ImportDiz           : Boolean = False;                          { -FTPDIZ            }
-	ftp_FirstNode           : LongInt = 256;                            { -FTPNODE:x         }
-	ftp_MaxSessions         : SmallWord = FtpMaxSessions;               { -FTPLIMIT:x        }
-	ftp_ServerPort          : SmallWord = FtpServerPort;                { -FTPPORT:x         }
-	ftp_UpdateUseron        : Boolean = False;                          { -FTPUSERON         }
-
+(*-+-*-+-*-+-*-+-*-+-*-+-*-+-*-+-*-+-*-+-*-+-*-+-*-+-*-+-*-+-*-+-*-+-*-+-*-*)
 
 var
 	DizImportThread : pDizImportThread;
@@ -191,12 +208,12 @@ begin
 		DebugObj.DebugLog(logString, 'WriteTransferLog (begin)');
 	{$ENDIF}
 
-	if (ftp_TransferLog <> '') then
+	if (LineCfg^.FtpServer^.TransferLog <> '') then
 		begin
-			LogStr := Format('%s %s %d %sx %s %d %s %d %d %d %d',[
+			LogStr := Format('%s %15s %03d %sx %s %d %s %d %d %d %d',[
 				ISO8601,                { current date/time in a sensible format }
 				IPAddr, CurSlot,
-				SUpCase(Direction), 	{ 'R'x: received from client; 'T'x: sent to client }
+				SUpCase(Direction),     { 'R'x: received from client (upload); 'T'x: sent to client (download) }
 				dynquotes(UserName),
 				FileArea, dynquotes(FileName), FileSize,
 				BytesTransferred, ResumeOffset, SecondsElapsed]);
@@ -205,7 +222,7 @@ begin
 
 			if (LogFile <> nil) then
 				begin
-					LogFile^.Assign(ftp_TransferLog);
+					LogFile^.Assign(LineCfg^.FtpServer^.TransferLog);
 					LogFile^.FileMode := ReadWriteMode + DenyNone;
 
 					if LogFile^.Open(1) or LogFile^.Create(1) then
@@ -215,13 +232,159 @@ begin
 						end;
 
 					Dispose(LogFile, Done);
-    			end; { IF LogFile <> nil }
-		end; { IF ftp_TransferLog <> '' }
+				end; { IF LogFile <> nil }
+		end; { IF LineCfg^.FtpServer^.TransferLog <> '' }
 
 	{$IFDEF WITH_DEBUG}
 		DebugObj.DebugLog(logString, 'WriteTransferLog (end)');
 	{$ENDIF}
 end; { proc. WriteTransferLog }
+
+(*-+-*-+-*-+-*-+-*-+-*-+-*-+-*-+-*-+-*-+-*-+-*-+-*-+-*-+-*-+-*-+-*-+-*-+-*-*)
+
+constructor RateObj.Init;
+begin
+	last := 0;
+	MaxRate := 0;
+	FillChar(tHist, SizeOf(tHist), #0);
+	FillChar(bHist, SizeOf(bHist), #0);
+	StatsLock.Init;
+	StatsLock.CreateExclusive;
+	LimitLock.Init;
+	LimitLock.CreateExclusive;
+end;
+
+(* ----------------------------------------------------------------------- *)
+
+destructor RateObj.Done;
+begin
+	LimitLock.Done;
+	StatsLock.Done;
+end;
+
+(* ----------------------------------------------------------------------- *)
+
+procedure RateObj.incr_bytes(bytes: LongInt);
+{
+	Add sample to history set
+
+	yeah, it's hardcoded to use 8 sample points @ 1 second intervals; sue me.
+}
+var
+	save: Byte;
+	time: Comp;
+
+begin
+	StatsLock.EnterExclusive;
+	time := TimeStampToMSecs(DateTimeToTimeStamp(Now));
+
+	if last = 0 then
+		save := 7
+	else
+		save := last-1;
+
+	while (tHist[last] <= time-100) and (last <> save) do
+		begin
+			inc(last);
+			if last > 7 then
+				last := 0;
+		end;
+
+	if last = save then
+		begin
+			tHist[last] := time;
+			bHist[last] := 0;
+			end;
+
+	inc(bHist[last], bytes);
+	StatsLock.LeaveExclusive;
+end; { proc. RateObj.incr_bytes }
+
+(* ----------------------------------------------------------------------- *)
+
+function RateObj.calc_rate: LongInt;
+{
+	Return average transfer rate in bytes/second
+}
+var
+	Counter: Byte;
+	time,
+	tmax,
+	tmin   : Comp;
+	bytes  : LongInt;
+
+begin
+	StatsLock.EnterExclusive;
+	time  := TimeStampToMSecs(DateTimeToTimeStamp(Now));
+	tmax  := 0;
+	tmin  := 0;
+	bytes := 0;
+
+	for Counter := 0 to 7 do
+		if (tHist[Counter] >= time-8000) then
+			begin
+				if (tHist[Counter] < tmin) or (tmin = 0) then
+					tmin := tHist[Counter];
+				if (tHist[Counter] > tmax) then
+					tmax := tHist[Counter];
+				inc(bytes, bHist[Counter]);
+			end;
+
+	time := time-tmin; {elapsed}
+	if time < 1000 then
+		time := 1000;
+
+	if (bytes = 0) or (time <= 0) then
+		bytes := 0
+	else
+		bytes := LongInt(round(bytes / (time / 1000)));
+
+	if bytes <  0 then
+		bytes := 0;
+
+	calc_rate := bytes;
+
+	StatsLock.LeaveExclusive;
+end; { func. RateObj.calc_rate }
+
+(* ----------------------------------------------------------------------- *)
+
+function RateObj.throttle(WantBytes: LongInt): LongInt;
+{
+	Throttle transfer rate
+
+	Return number of bytes caller is allowed to send/receive, up to WantBytes or
+	(((GxMax+BlockSize)-GxCur)), whichever is smaller (but >= BlockSize)
+
+	XXXTODO: move to RateObj, include internal GxMax?
+}
+const
+	SleepTime: Byte = 100;         { sleeps are in 1000ths of a second: 100 = 1/10th of a second }
+	BlockSize: SmallWord = 256;    { minimum packet size }
+
+var
+	GiveBytes: LongInt;
+
+begin
+	GiveBytes := WantBytes;
+
+	if (MaxRate > 0) and (GiveBytes > 0) then
+		begin
+			LimitLock.EnterExclusive;
+
+			repeat
+				GiveBytes := (MaxRate + BlockSize - calc_rate);
+				if GiveBytes > WantBytes then
+					GiveBytes := WantBytes;
+				if GiveBytes < BlockSize then
+					FtpServerSocket.DoSleep(SleepTime);
+			until GiveBytes >= BlockSize;
+
+			LimitLock.LeaveExclusive;
+		end;
+
+	throttle := GiveBytes;
+end; { func. RateObj.throttle }
 
 (*-+-*-+-*-+-*-+-*-+-*-+-*-+-*-+-*-+-*-+-*-+-*-+-*-+-*-+-*-+-*-+-*-+-*-+-*-*)
 
@@ -272,23 +435,22 @@ function CloseDataConnection(const CurSlot: Longint; DidSuccess: Boolean): Boole
 	XXXBUGBUG: DidSuccess: not used
 }
 begin
-    {-- initialize basic variables -------------------------------------------}
-    CloseDataConnection := True;
+	{-- initialize basic variables -------------------------------------------}
+	CloseDataConnection := True;
 
-    with ftpConnectionRec(Connections[CurSlot].SrvData^) do
-        begin
-            if (not UseDataConn) then
-                DataThread.Disconnect;
-
-            IsPassive := False;
-            FillChar(RemAddr, SizeOf(RemAddr), #0);
-            {DataThread.SockHandle := -1;}
-            DataThread.Destroy;
-            DataThread := TTcpServer.Create;
+	with ftpConnectionRec(Connections[CurSlot].SrvData^) do
+		begin
+			if (not UseDataConn) then
+				DataThread.Disconnect;
+			IsPassive := False;
+			FillChar(RemAddr, SizeOf(RemAddr), #0);
+			{DataThread.SockHandle := -1;}
+			DataThread.Destroy;
+			DataThread := TTcpServer.Create;
 			DataThread.ReuseAddr := True;
-        end; { with }
+		end; { with }
 
-    SendCodeStr(CurSlot, 226)
+	SendCodeStr(CurSlot, 226)
 end; { func. CloseDataConnection }
 
 (*-+-*-+-*-+-*-+-*-+-*-+-*-+-*-+-*-+-*-+-*-+-*-+-*-+-*-+-*-+-*-+-*-+-*-+-*-*)
@@ -333,7 +495,13 @@ begin
 							 FStr(RemAddr[4]);
 
 					{-- lets connect to the server ---------------------------------------}
-					if DataThread.ConnectToServer(IpStr, PortNum, ResStr) then
+					if ReadBit(LineCfg^.FtpServer^.Attribute, 6) and (IpStr <> Connections[CurSlot].IpAddr) then
+						begin
+							RaLog('!', Format('[FTPSERV:%d] FXP connection blocked (CTRL: %s; DATA: %s', [CurSlot, Connections[CurSlot].IpAddr, IpStr]));
+							OpenDataConnection := False;
+							SendCodeStr(CurSlot, 425);
+						end { FXP check }
+					else if DataThread.ConnectToServer(IpStr, PortNum, ResStr) then
 						begin
 							OpenDataConnection := True;
 							SendCodeMsg(CurSlot, 150, Format('Connecting to port %d (%s)', [PortNum, IpStr]))
@@ -353,8 +521,7 @@ begin
 
 					repeat
 						Counter := Counter + 1;
-                                                TempLen := SockAddr_Len;
-
+						TempLen := SockAddr_Len;
 
 						ClientRC := SockAccept(DataThread.ServerHandle,
 									  ClientAddr,
@@ -363,9 +530,16 @@ begin
 						DataThread.DoSleep(1);
 					until (ClientRC <> -1) or (Counter >= 4000);
 
+					IpStr := FtpServerSocket.IpToStr(ClientAddr^.sIn_Addr);
 					Dispose(ClientAddr);
 
-					if (ClientRC = -1) then
+					if ReadBit(LineCfg^.FtpServer^.Attribute, 6) and (IpStr <> Connections[CurSlot].IpAddr) then
+						begin
+							RaLog('!', Format('[FTPSERV:%d] FXP connection blocked (CTRL: %s; DATA: %s', [CurSlot, Connections[CurSlot].IpAddr, IpStr]));
+							OpenDataConnection := False;
+							SendCodeStr(CurSlot, 425);
+						end { FXP check }
+					else if (ClientRC = -1) then
 						begin
 							OpenDataConnection := False;
 							SendCodeStr(CurSlot, 425);
@@ -700,10 +874,26 @@ end; { proc. SendAreaList }
 
 (*-+-*-+-*-+-*-+-*-+-*-+-*-+-*-+-*-+-*-+-*-+-*-+-*-+-*-+-*-+-*-+-*-+-*-+-*-*)
 
+function SafeFormatFileDate(Format: String; Date: LongInt): String;
+begin
+	try
+		Result := FormatDateTime(Format, FileDateToDateTime(Date));
+	except
+		on E:EConvertError do
+			try
+				Result := FormatDateTime(Format, SysUtils.Date);
+			except
+				on E:EConvertError do
+					Result := LeftJust('', Length(Format));
+			end;
+	end;
+end;
+
 function Dos2FtpDate(Date: Longint): String;
 begin
-  {-- Create a datestr ----------------------------------------------------}
-  Result := FormatDateTime('mmm dd  yyyy', FileDateToDateTime(Date));
+	{-- Create a datestr ----------------------------------------------------}
+	{Result := FormatDateTime('mmm dd  yyyy', FileDateToDateTime(Date));}
+	Result := SafeFormatFileDate('mmm dd  yyyy', Date);
 end; { func. Dos2FtpDate }
 
 (*-+-*-+-*-+-*-+-*-+-*-+-*-+-*-+-*-+-*-+-*-+-*-+-*-+-*-+-*-+-*-+-*-+-*-+-*-*)
@@ -731,11 +921,14 @@ procedure GenVirtualIndex(CurSlot: LongInt;  AreaNum: SmallWord);
 	listed file's size.
 }
 var
-	SrvData : pFtpConnectionRec;
-	AreaObj : FdbFileObj;
-	Counter : Longint;
-	TmpBuff1,
-	TmpBuff2: AnsiString;
+	SrvData   : pFtpConnectionRec;
+	AreaObj   : FdbFileObj;
+	Counter   : Longint;
+	TmpBuff,
+	TmpDesc00,
+	OldDesc00,
+	TmpDesc02,
+	OldDesc02 : AnsiString;
 
 begin
 	{$IFDEF WITH_DEBUG}
@@ -744,57 +937,90 @@ begin
 
 	{-- preparation: initialise variables and open the file area --}
 	SrvData := Connections[CurSlot].SrvData;
-	SrvData^.VirtIdxBuff := '';
-	SrvData^.VirtIdxArea := -1;
+	SrvData^.IndexBuff00   := '';
+	SrvData^.IndexBuff02   := '';
+	SrvData^.IndexArea := -1;
 	AreaObj.Init(AreaNum, False);	{ create = false }
 
 	if (AreaObj.GetError = 0) then
 		begin
-			SrvData^.VirtIdxArea := AreaNum;
+			SrvData^.IndexArea := AreaNum;
 
 			{-- generate the actual file list --}
 			for Counter := 0 to AreaObj.TotalRecords-1 do
 				begin
 					AreaObj.Read(Counter);
 
-					if (AreaObj.GetError = 0) and (FileAvailForDownload(AreaObj)) then
+					if (AreaObj.GetError = 0) and (FileAvailForDownload(AreaObj) or AreaObj.IsComment) then
 						begin
 							AreaObj.ReadDescription(AreaObj.TxtF, AreaObj.GetLongDescPtr);
 
-							SrvData^.VirtIdxBuff := SrvData^.VirtIdxBuff + Format('%s B %s %s %s%s', [
-								LeftJust(ConvDirName(AreaObj.GetFileName), 20),
-								RightJust(CommaStr(AreaObj.GetSize), 11),
-								FormatDateTime('yymmdd', FileDateToDateTime(AreaObj.GetFileDate)),
-								AreaObj.GetDescLine(250),
-								chr(10)]);
+							if AreaObj.IsComment then
+								begin
+									TmpBuff := AreaObj.GetDescLine(250) + chr(10);
+									if LineCfg^.FtpServer^.IndexName00 <> '' then
+										SrvData^.IndexBuff00 := SrvData^.IndexBuff00 + TmpBuff;
+									if LineCfg^.FtpServer^.IndexName02 <> '' then
+										SrvData^.IndexBuff02 := SrvData^.IndexBuff02 + TmpBuff;
+								end
+							else
+								begin
+									TmpBuff := Format('%s B %s %s %s', [
+										LeftJust(ConvDirName(AreaObj.GetFileName), 20),
+										RightJust(CommaStr(AreaObj.GetSize), 11),
+										SafeFormatFileDate('yymmdd', AreaObj.GetFileDate),
+										AreaObj.GetDescLine(250)]);
+									if (LineCfg^.FtpServer^.IndexName00 <> '') then
+										SrvData^.IndexBuff00 := SrvData^.IndexBuff00 + TmpBuff + chr(10);
+									if (LineCfg^.FtpServer^.IndexName02 <> '') then
+										begin
+											SrvData^.IndexBuff02 := SrvData^.IndexBuff02 + TmpBuff + chr(10);
+											while not AreaObj.EndOfDesc do
+												SrvData^.IndexBuff02 := SrvData^.IndexBuff02 + RightJust(' ', 42) + AreaObj.GetDescLine(250) + chr(10);
+										end;
+								end; { AreaObj.IsComment }
 						end; { FileAvailForDownload(AreaObj) }
 				end; { for Counter := 1 to AreaObj.TotalRecords }
 
 			{-- generate a header --}
 			{ XXXTODO: SystemName; "Directory $Group/$Area"; (optional) external header file }
-			TmpBuff1 :=
+			TmpBuff :=
 				'Filename          Type      Length   Date Description' + chr(10) +
-				'=================================================' + chr(10);
+				'=====================================================' + chr(10);
 
-			{-- generate the fake description for our fake file; has to be done here to get the correct size --}
-			Counter := 0;
+			{-- generate the metadata for our fake files; has to be done here to get the correct size --}
+			TmpDesc00 := ''; OldDesc00 := '';
+			TmpDesc02 := ''; OldDesc02 := '';
 
 			repeat
-				TmpBuff2 := Format('%s B %s %s %s %s', [
-					LeftJust(ConvDirName(ftp_VirtualIndex), 20),
-					RightJust(CommaStr(length(SrvData^.VirtIdxBuff) + length(TmpBuff1) + Counter), 11),
-					FormatDateTime('yymmdd', Now),
-					'** this file **',
-					chr(10)]);
+				if (LineCfg^.FtpServer^.IndexName00 <> '') then
+					TmpDesc00 := Format('%s B %s %s %s %s', [
+						LeftJust(ConvDirName(LineCfg^.FtpServer^.IndexName00), 20),
+						RightJust(CommaStr(length(TmpBuff) + length(SrvData^.IndexBuff00) + length(TmpDesc00) + length(TmpDesc02)), 11),
+						FormatDateTime('yymmdd', Now),
+						'** Short Descriptions **',
+						chr(10)]);
 
-				if Counter = length(TmpBuff2)
-					then break
-					else Counter := length(TmpBuff2);
+				if (LineCfg^.FtpServer^.IndexName02 <> '') then
+					TmpDesc02 := Format('%s B %s %s %s %s', [
+						LeftJust(ConvDirName(LineCfg^.FtpServer^.IndexName02), 20),
+						RightJust(CommaStr(length(TmpBuff) + length(SrvData^.IndexBuff02) + length(TmpDesc00) + length(TmpDesc02)), 11),
+						FormatDateTime('yymmdd', Now),
+						'** Long Descriptions **',
+						chr(10)]);
+
+				if (TmpDesc00 = OldDesc00) and (TmpDesc02 = OldDesc02) then
+					break;
+
+				OldDesc00 := TmpDesc00;
+				OldDesc02 := TmpDesc02;
 			until False;
 
-			{-- now we can add the header and fake file to the top of the main buffer --}
-			SrvData^.VirtIdxBuff :=
-				TmpBuff1 + TmpBuff2 + SrvData^.VirtIdxBuff;
+			{ now put the headers on the descriptions }
+			if LineCfg^.FtpServer^.IndexName00 <> '' then
+				SrvData^.IndexBuff00 := TmpBuff + TmpDesc00 + TmpDesc02 + SrvData^.IndexBuff00;
+			if LineCfg^.FtpServer^.IndexName02 <> '' then
+				SrvData^.IndexBuff02 := TmpBuff + TmpDesc00 + TmpDesc02 + SrvData^.IndexBuff02;
 
 			{-- we're done - clean up the mess --}
 			AreaObj.Done;
@@ -807,7 +1033,7 @@ end; { proc. GenVirtualIndex }
 
 (*-+-*-+-*-+-*-+-*-+-*-+-*-+-*-+-*-+-*-+-*-+-*-+-*-+-*-+-*-+-*-+-*-+-*-+-*-*)
 
-procedure SendVirtualIndex(const CurSlot: LongInt;  AreaNum: SmallWord;  ResumeOfs: LongInt);
+procedure SendVirtualIndex(const CurSlot: LongInt;  AreaNum: SmallWord;  LongDesc: Boolean;  ResumeOfs: LongInt);
 {
 	Send the VirtualIndex buffer to the client.
 }
@@ -820,6 +1046,7 @@ var
 	DidSend,                 { how much of the buffer was sent }
 	TotalSent,               { total bytes transmitted }
 	CurrentPos: LongInt;
+	LocalBuff : AnsiString;
 
 begin
 	{$IFDEF WITH_DEBUG}
@@ -831,7 +1058,7 @@ begin
 
 	{-- Always use the existing buffer (generated from the last LIST command) if valid, so that semi-intelligent clients don't --}
 	{-- get their panties in a twist if the filesize changes.  Otherwise, generate a fresh list --}
-	if (SrvData^.VirtIdxBuff = '') or (SrvData^.VirtIdxArea <> AreaNum) then
+	if ((not LongDesc) and (SrvData^.IndexBuff00 = '')) or ((LongDesc) and (SrvData^.IndexBuff02 = '')) or (SrvData^.IndexArea <> AreaNum) then
 		begin
 			LocalCache := True;
 			GenVirtualIndex(CurSlot, AreaNum);
@@ -843,14 +1070,21 @@ begin
 	TotalSent  := 0;
 	StartTime  := NowAsUnixDate;
 
+	if (LongDesc and (SrvData^.IndexBuff02 <> '')) then
+		LocalBuff := SrvData^.IndexBuff02
+	else
+		LocalBuff := SrvData^.IndexBuff00;
+
 	{-- send the buffer --}
-	while (SrvData^.DataThread.ConnectionAlive) and (CurrentPos < length(SrvData^.VirtIdxBuff)) do
+	while (SrvData^.DataThread.ConnectionAlive) and (CurrentPos < length(LocalBuff)) do
 		begin
-			ToSend := length(SrvData^.VirtIdxBuff) - CurrentPos;
+			ToSend := length(LocalBuff) - CurrentPos;
 			if ToSend > 4096 then
 				ToSend := 4096;
 
-			SrvData^.DataThread.SendBuf(SrvData^.VirtIdxBuff[CurrentPos+1], ToSend, DidSend);
+			DidSend := 0;
+
+			SrvData^.DataThread.SendBuf(LocalBuff[CurrentPos+1], GlobalTxRate.throttle(SrvData^.SessionTxRate.throttle(ToSend)), DidSend);
 
 			if (DidSend > 0) then
 				begin
@@ -858,23 +1092,31 @@ begin
 					inc(TotalSent, DidSend);
 				end
 			else
-				SrvData^.DataThread.DoSleep(100);
+				SrvData^.DataThread.DoSleep(50);
 		end; { while }
 
 	EndTime := NowAsUnixDate;
 
 	{-- log the transfer; user record isn't updated as this is the FTP equivalent of a List Files op (always free) --}
-	WriteTransferLog(
-	Connections[CurSlot].IpAddr, CurSlot, 'T',
-		SrvData^.UserName,
-		AreaNum, ftp_VirtualIndex,
-		length(SrvData^.VirtIdxBuff), TotalSent, ResumeOfs, (EndTime - StartTime));
+	if LongDesc then
+		WriteTransferLog(
+			Connections[CurSlot].IpAddr, CurSlot, 'T',
+			SrvData^.UserName,
+			AreaNum, LineCfg^.FtpServer^.IndexName02,
+			length(LocalBuff), TotalSent, ResumeOfs, (EndTime - StartTime))
+	else
+		WriteTransferLog(
+			Connections[CurSlot].IpAddr, CurSlot, 'T',
+			SrvData^.UserName,
+			AreaNum, LineCfg^.FtpServer^.IndexName00,
+			length(LocalBuff), TotalSent, ResumeOfs, (EndTime - StartTime));
 
 	{-- Clear the cache if we made it ourselves so subsequent requests will be more up-to-date --}
 	if LocalCache then
 		begin
-			SrvData^.VirtIdxBuff := '';
-			SrvData^.VirtIdxArea := -1;
+			SrvData^.IndexBuff00 := '';
+			SrvData^.IndexBuff02 := '';
+			SrvData^.IndexArea := -1;
 		end;
 
 	{$IFDEF WITH_DEBUG}
@@ -899,15 +1141,22 @@ begin
   With ftpConnectionRec(Connections[CurSlot].SrvData^).DataThread do
     begin
       {-- virtual index support: send a fake index file entry --------------}
-      if (ftp_VirtualIndex <> '') then
+      if (LineCfg^.FtpServer^.IndexName00 <> '') or (LineCfg^.FtpServer^.IndexName02 <> '') then
         begin
           GenVirtualIndex(CurSlot, SmallWord(CurArea));
 
-          SendStrLn(MakeFileEntry(True,
-                                  FStr(length(ftpConnectionRec(Connections[CurSlot].SrvData^).VirtIdxBuff)),
-                                  FormatDateTime('mmm dd  yyyy', Now),
-                                  ConvDirName(ftp_VirtualIndex),
-                                  IsNLST));
+          if LineCfg^.FtpServer^.IndexName00 <> '' then
+            SendStrLn(MakeFileEntry(True,
+                                    FStr(length(ftpConnectionRec(Connections[CurSlot].SrvData^).IndexBuff00)),
+                                    FormatDateTime('mmm dd  yyyy', Now),
+                                    ConvDirName(LineCfg^.FtpServer^.IndexName00),
+                                    IsNLST));
+          if LineCfg^.FtpServer^.IndexName02 <> '' then
+            SendStrLn(MakeFileEntry(True,
+                                    FStr(length(ftpConnectionRec(Connections[CurSlot].SrvData^).IndexBuff02)),
+                                    FormatDateTime('mmm dd  yyyy', Now),
+                                    ConvDirName(LineCfg^.FtpServer^.IndexName02),
+                                    IsNLST));
         end;
 
       {-- open the group file ----------------------------------------------}
@@ -1234,7 +1483,9 @@ procedure GetPartsFromDir(var   ParamString: String;
                           var   InvalidDir : Boolean;
                           var   ListGroup,
                                 ListArea   : Longint);
-var DirStr      : String;
+var
+    TmpStr,
+    DirStr      : String;
 
     GroupName,
     AreaName,
@@ -1252,11 +1503,12 @@ begin
   StartRoot := FALSE;
 
   {-- Dirstring ----------------------------------------------------}
-(*
-	XXXBUGBUG: why? this breaks filenames with spaces
-  DirStr := ExtractWord(ParamString, 1, defExtractWord, true, false);
-*)
   DirStr := ParamString;
+  TmpStr := ExtractWord(DirStr, 1, defExtractWord, false, false);
+
+  { remove command flags like -a }
+  if (TmpStr <> '') and (TmpStr[1] = '-') then
+    RemoveWordNr(DirStr, 1, defExtractWord, False);
 
   {-- BreakUpDirStr ------------------------------------------------}
   if DirStr <> '' then
@@ -1375,7 +1627,7 @@ var
 	UserOn : USERONrecord;
 	UserOnF: pFileObj;
 begin
-	if not ftp_UpdateUseron then
+	if not ReadBit(LineCfg^.FtpServer^.Attribute, 5) then
 		exit;
 
 	FillChar(UserOn, SizeOf(USERONrecord), #0);
@@ -1385,13 +1637,13 @@ begin
 			exit;
 		end;
 
-	Config_SeekFile(UserOnF, LongInt(SizeOf(USERONrecord)) * (ftp_FirstNode + CurSlot -1));
+	Config_SeekFile(UserOnF, LongInt(SizeOf(USERONrecord)) * (LineCfg^.FtpServer^.FirstNode + CurSlot -1));
 	Config_ReadFile(UserOnF, UserOn, SizeOf(USERONrecord));
-	Config_SeekFile(UserOnF, LongInt(SizeOf(USERONrecord)) * (ftp_FirstNode + CurSlot -1));
+	Config_SeekFile(UserOnF, LongInt(SizeOf(USERONrecord)) * (LineCfg^.FtpServer^.FirstNode + CurSlot -1));
 
 	with ftpConnectionRec(Connections[CurSlot].SrvData^) do
 		begin
-			UserOn.NodeNumber := ftp_FirstNode + CurSlot -1;
+			UserOn.NodeNumber := LineCfg^.FtpServer^.FirstNode + CurSlot -1;
 			if UserOn.NodeNumber < 255 then
 				UserOn.Line := UserOn.NodeNumber
 			else
@@ -1428,14 +1680,14 @@ var
 	UserOnF: pFileObj;
 
 begin
-	if not ftp_UpdateUseron then
+	if not ReadBit(LineCfg^.FtpServer^.Attribute, 5) then
 		exit;
 
 	FillChar(UserOn, SizeOf(USERONrecord), #0);
 
 	if Config_OpenFile(UserOnF, GlobalCfg^.RaConfig^.SysPath+'useron.bbs', 1, WriteMode+DenyNone, False, False) = 0 then
 		begin
-			Config_SeekFile(UserOnF, LongInt(SizeOf(USERONrecord)) * (ftp_FirstNode + CurSlot - 1));
+			Config_SeekFile(UserOnF, LongInt(SizeOf(USERONrecord)) * (LineCfg^.FtpServer^.FirstNode + CurSlot - 1));
 			Config_WriteFile(UserOnF, UserON, SizeOf(USERONrecord));
 		end;
 
@@ -1453,7 +1705,7 @@ var
 	LastCallF: pFileObj;
 
 begin
-	if not ftp_UpdateUseron then
+	if not ReadBit(LineCfg^.FtpServer^.Attribute, 5) then
 		exit;
 
 	if (ftpConnectionRec(Connections[CurSlot].SrvData^).UserName = '') or
@@ -1471,8 +1723,8 @@ begin
 			LastCall.LogOn   := LogOnTime;
 			LastCall.LogOff  := TimeStr(False, False);
 
-			if (ftp_FirstNode + CurSlot -1) < 255 then
-				LastCall.Line := (ftp_FirstNode + CurSlot -1)
+			if (LineCfg^.FtpServer^.FirstNode + CurSlot -1) < 255 then
+				LastCall.Line := (LineCfg^.FtpServer^.FirstNode + CurSlot -1)
 			else
 				LastCall.Line := 255;
 
@@ -1616,7 +1868,7 @@ type
 	PFileBuf = ^TFileBuf;
 
 const
-	AllowChars	: CharSet = ['0'..'9', 'A'..'Z', 'a'..'z', ' ', '_', '-', '+', '.', ',', '[', ']', '(', ')'];
+	AllowChars	: CharSet = ['0'..'9', 'A'..'Z', 'a'..'z', ' ', '_', '-', '+', '.', ',', '[', ']', '(', ')', ''''];
 
 var
 	StartTime,
@@ -1637,6 +1889,12 @@ var
 	TmpBuf		: PFileBuf;
 
 begin
+	if (not ReadBit(LineCfg^.FtpServer^.Attribute, 3)) then
+		begin
+			SendCodeStr(CurSlot, 502);  { command not implemented }
+			EXIT;
+		end;
+
 	ResumeOfs := ftpConnectionRec(Connections[CurSlot].SrvData^).ResumeOfs;
 	ftpConnectionRec(Connections[CurSlot].SrvData^).ResumeOfs := 0;
 
@@ -1659,7 +1917,7 @@ begin
 		end; { if }
 
 	{-- because that would be silly --}
-	if (FileName = ftp_VirtualIndex) then
+	if (SUpCase(FileName) = SUpCase(LineCfg^.FtpServer^.IndexName00)) or (SUpCase(FileName) = SUpCase(LineCfg^.FtpServer^.IndexName02)) then
 		FileName := '';
 
 	{-- check FileName is valid ----------------------------------------------}
@@ -1729,7 +1987,7 @@ begin
 	HdrRec := SearchNameInArea(FilesInf.AreaNum, FileName, False);
 
 	{-- never overwrite what isn't ours --------------------------------------}
-	if (Temp_F^.Exists) and (HdrRec <= 0) then
+	if (HdrRec <= 0) and GenFile.FileExist(Temp_F^.FileName) and not (ftpIgnoreEmptyDupe and (GenFile.GetFileSize(Temp_F^.FileName, 1) = 0)) then
 		begin
 			RaLog('>', Format('[FTPSERV:%d] [%s] Upload rejected - file exists on disk but not in area #%d: %s', [CurSlot, Connections[CurSlot].IpAddr, FilesInf.AreaNum, FileName]));
 			SendCodeStr(CurSlot, 550);
@@ -1810,12 +2068,14 @@ begin
 					{ XXXTODO: check disk space here? }
 					while ftpConnectionRec(Connections[Curslot].SrvData^).DataThread.ConnectionAlive do
 						begin
-							ftpConnectionRec(Connections[Curslot].SrvData^).DataThread.RecvBuf(TmpBuf^, sizeof(TFileBuf), DidRead);
+							ftpConnectionRec(Connections[Curslot].SrvData^).DataThread.RecvBuf(TmpBuf^, GlobalRxRate.throttle(ftpConnectionRec(Connections[CurSlot].SrvData^).SessionRxRate.throttle(SizeOf(TFileBuf))){sizeof(TFileBuf)}, DidRead);
+
 							if DidRead > 0 then
 								begin
 									Temp_F^.BlkWrite(TmpBuf^, DidRead);
-									DidSave := DidSave + DidRead;
-
+									inc(DidSave, DidRead); {DidSave := DidSave + DidRead;}
+									GlobalRxRate.incr_bytes(DidRead);
+									ftpConnectionRec(Connections[CurSlot].SrvData^).SessionRxRate.incr_bytes(DidRead);
 									{ XXXBUGBUG: this loop would otherwise cause high CPU usage, but this is ugly. }
 									{ XXXBUGBUG  replace sleep() with recvbuf alternative that fills the buffer if possible }
 									ftpConnectionRec(Connections[Curslot].SrvData^).DataThread.DoSleep(1);
@@ -1875,7 +2135,7 @@ begin
 					Temp_F.Close;
 
 					{-- file descriptions are imported in another thread; let it know it's got work to do }
-					if ftp_ImportDiz then
+					if ReadBit(LineCfg^.FtpServer^.Attribute, 4) then
 						DizImportThread^.SubmitJob(FilesInf.AreaNum, FileName);
 
 				end; { if OpenDataConnection }
@@ -1921,6 +2181,12 @@ var
 	EndTime 	: LongInt;
 
 begin
+	if (not ReadBit(LineCfg^.FtpServer^.Attribute, 2)) then  { Allow downloads }
+		begin
+			SendCodeStr(CurSlot, 502);  { command not implemented }
+			EXIT;
+		end;
+
   {-- do this here so we can quit at any time ------------------------------}
   zResumeOfs := ftpConnectionRec(Connections[CurSlot].SrvData^).ResumeOfs;
   ftpConnectionRec(Connections[CurSlot].SrvData^).ResumeOfs := 0;
@@ -1955,7 +2221,8 @@ begin
       GetFilesRecord(FilesInf, SmallWord(ListArea), true);
 
       {-- Virtual index support; check the LIST permissions, not DOWNLOAD --}
-      if (ftp_VirtualIndex <> '') and (ConvDirName(ftp_VirtualIndex) = WildCardStr) then
+      if (LineCfg^.FtpServer^.IndexName00 <> '') and (ConvDirName(LineCfg^.FtpServer^.IndexName00) = WildCardStr) or
+         (LineCfg^.FtpServer^.IndexName02 <> '') and (ConvDirName(LineCfg^.FtpServer^.IndexName02) = WildCardStr) then
         begin
           if CheckFileAreaAccess(FilesInf,
                                  False,          { download }
@@ -1967,7 +2234,10 @@ begin
             begin
               if OpenDataConnection(CurSlot, ResStr) then
                 begin
-                  SendVirtualIndex(CurSlot, FilesInf.AreaNum, zResumeOfs);
+                  if ConvDirName(LineCfg^.FtpServer^.IndexName00) = WildCardStr then
+                    SendVirtualIndex(CurSlot, FilesInf.AreaNum, False, zResumeOfs)  { send short list }
+                  else
+                    SendVirtualIndex(CurSlot, FilesInf.AreaNum, True, zResumeOfs);  { send long list }
                   CloseDataConnection(CurSlot, true);
                 end;
             end
@@ -2087,15 +2357,19 @@ begin
 
                       while (Counter < DidRead) AND (DataThread.ConnectionAlive) do
                         begin
-                          DataThread.SendBuf(TmpBuf^[Counter], (DidRead - Counter), DidSent);
+                          DidSent := 0;
+
+                          DataThread.SendBuf(TmpBuf^[Counter], GlobalTxRate.throttle(ftpConnectionRec(Connections[CurSlot].SrvData^).SessionTxRate.throttle(DidRead{-Counter?})), DidSent);
 
                           if DidSent > 0 then
                             begin
                               Inc(Counter, DidSent);
                               Inc(TotalBytes, DidSent);
+                              GlobalTxRate.incr_bytes(DidSent);
+                              ftpConnectionRec(Connections[CurSlot].SrvData^).SessionTxRate.incr_bytes(DidSent);
                             end
                           else
-                            DataThread.DoSleep(100);
+                            DataThread.DoSleep(50);
                         end; { while }
 
                     end; { while }
@@ -2236,63 +2510,197 @@ end; { proc. cmdNoop }
 
 (*-+-*-+-*-+-*-+-*-+-*-+-*-+-*-+-*-+-*-+-*-+-*-+-*-+-*-+-*-+-*-+-*-+-*-+-*-*)
 
-procedure cmdUser(const CurSlot: Longint; var ParamString: String);
-var UserExt  : userExtensionRecord;
+function count_user(UserName, IpAddr: String): LongInt;
+{
+	count how many active FTP sessions UserName has
+}
+var
+	Slot,
+	Count : LongInt;
+
 begin
-  ftpConnectionRec(Connections[CurSlot].SrvData^).UserName := '';
-  ftpConnectionRec(Connections[CurSlot].SrvData^).PasswordCRC := -1;
-  ftpConnectionRec(Connections[CurSlot].SrvData^).Validated := false;
-  ftpConnectionRec(Connections[CurSlot].SrvData^).Anonymous := false;
+	Count := 0;
 
-  {-- Allow for login name translation before scanning userbase --}
-  ParamString := SUpCase(Trim(ParamString));
-  if (ftp_AllowAnonymous) and (ParamString = 'FTP') then
-    ParamString := 'ANONYMOUS';
+	for Slot := 01 to LineCfg^.FtpServer^.MaxSessions do
+		if (Connections[Slot].SrvType = SrvFTP) and
+				(Connections[Slot].Name <> '') and
+				(ftpConnectionRec(Connections[Slot].SrvData^).UserRec > 0) and
+				(not ftpConnectionRec(Connections[Slot].SrvData^).Anonymous) and
+				((UserName = '') or (SUpCase(ftpConnectionRec(Connections[Slot].SrvData^).UserName) = SUpCase(UserName))) and
+				((IpAddr = '') or (Connections[Slot].IpAddr = IpAddr)) then
+			inc(Count);
 
-  ftpConnectionRec(Connections[CurSlot].SrvData^).UserRec := SearchUser(ParamString);
+	count_user := Count;
+end;
 
-  if ftpConnectionRec(Connections[CurSlot].SrvData^).UserRec >= 0 then
-    begin
-      {-- retrieve the users password --------------------------------------}
-      GetUserRecord(ftpConnectionRec(Connections[CurSlot].SrvData^).UserRec,
-                    ftpConnectionRec(Connections[CurSlot].SrvData^).Exitinfo.UserInfo,
-                    UserExt,
-                    false);
+(*-+-*-+-*-+-*-+-*-+-*-+-*-+-*-+-*-+-*-+-*-+-*-+-*-+-*-+-*-+-*-+-*-+-*-+-*-*)
 
-      ftpConnectionRec(Connections[CurSlot].SrvData^).UserName := ftpConnectionRec(Connections[CurSlot].SrvData^).ExitInfo.UserInfo.Name;
+function count_anon(IpAddr: String): LongInt;
+{
+	count how many active anonymous FTP sessions has
+}
+var
+	Slot,
+	Count : LongInt;
 
-      {-- Substitute username when hostnames are disabled --}
-      if NoDNSLookup then
-        Connections[CurSlot].Name := ftpConnectionRec(Connections[CurSlot].SrvData^).UserName;
+begin
+	Count := 0;
 
-      {-- Check for anonymous access --}
-      if (ftp_AllowAnonymous) AND (SUpCase(ftpConnectionRec(Connections[CurSlot].SrvData^).UserName) = 'ANONYMOUS') then
-        ftpConnectionRec(Connections[CurSlot].SrvData^).Anonymous := true;
+	for Slot := 01 to LineCfg^.FtpServer^.MaxSessions do
+		if (Connections[Slot].SrvType = SrvFTP) and
+				(Connections[Slot].Name <> '') and
+				(ftpConnectionRec(Connections[Slot].SrvData^).UserRec > 0) and
+				(ftpConnectionRec(Connections[Slot].SrvData^).Anonymous) and
+				((IpAddr = '') or (Connections[Slot].IpAddr = IpAddr)) then
+			inc(Count);
 
-      {-- Reject Guest users --}
-      if (NOT ftp_AllowAnonymous) AND (ReadBit(ftpConnectionRec(Connections[CurSlot].SrvData^).Exitinfo.UserInfo.Attribute2, 6)) then
-        begin
-          RaLog('>', Format('[FTPSERV:%d] [%s] Access denied: Guest users not allowed unless Anonymous logins enabled.', [CurSlot, Connections[CurSlot].IpAddr]));
-          ftpConnectionRec(Connections[CurSlot].SrvData^).UserRec := -1;
-        end;
+	count_anon := Count;
+end;
 
-      {-- Reject sysop logins --}
-      if (NOT GlobalCfg^.RaConfig^.AllowSysRem)
-          AND ((SUpcase(ftpConnectionRec(Connections[CurSlot].SrvData^).ExitInfo.UserInfo.Name) = SUpcase(GlobalCfg^.RaConfig^.SysOp))
-            OR (SUpcase(ftpConnectionRec(Connections[CurSlot].SrvData^).ExitInfo.UserInfo.Handle) = SUpcase(GlobalCfg^.RaConfig^.Sysop)))
-          AND (Connections[CurSlot].IpAddr <> '127.0.0.1') then
-        begin
-          RaLog('>', Format('[FTPSERV:%d] [%s] Access denied: remote sysop logins have been disabled.', [CurSlot, Connections[CurSlot].IpAddr]));
-          ftpConnectionRec(Connections[CurSlot].SrvData^).UserRec := -1;
-        end; { AllowSysRem }
+(*-+-*-+-*-+-*-+-*-+-*-+-*-+-*-+-*-+-*-+-*-+-*-+-*-+-*-+-*-+-*-+-*-+-*-+-*-*)
 
-    end; { else }
+procedure cmdUser(const CurSlot: Longint; var ParamString: String);
+var
+	UserExt: userExtensionRecord;
+	SrvData: pFtpConnectionRec;
 
-  {-- we always ask for a password to not give away our userlist ;) --------}
-  if ftpConnectionRec(Connections[CurSlot].SrvData^).Anonymous then
-    SendCodeMsg(CurSlot, 331, 'User name, okay. Please send email address.')
-  else
-    SendCodeMsg(CurSlot, 331, 'User name, okay. Please send password.');
+begin
+	{$IFDEF WITH_DEBUG}
+		DebugObj.DebugLog(logString, 'cmdUser (begin)');
+	{$ENDIF}
+	SrvData := Connections[CurSlot].SrvData;
+
+	SrvData^.UserName    := '';
+	SrvData^.PasswordCRC := -1;
+	SrvData^.Validated   := false;
+	SrvData^.Anonymous   := false;
+
+	{-- Allow for login name translation before scanning userbase --}
+	ParamString := SUpCase(Trim(ParamString));
+	if (ReadBit(LineCfg^.FtpServer^.Attribute, 1)) and (ParamString = 'FTP') then
+		ParamString := 'ANONYMOUS';
+
+	SrvData^.UserRec := SearchUser(ParamString);
+
+	if SrvData^.UserRec >= 0 then
+		begin
+			{$IFDEF WITH_DEBUG}
+				DebugObj.DebugLog(logString, 'cmdUser: SrvData^.UserRec >= 0 (begin)');
+			{$ENDIF}
+			{-- retrieve the users password --------------------------------------}
+			{$IFDEF WITH_DEBUG}
+				DebugObj.DebugLog(logString, 'cmdUser: GetUserRecord (begin)');
+			{$ENDIF}
+			GetUserRecord(SrvData^.UserRec,
+			              SrvData^.Exitinfo.UserInfo,
+			              UserExt,
+			              false);
+			{$IFDEF WITH_DEBUG}
+				DebugObj.DebugLog(logString, 'cmdUser: GetUserRecord (end)');
+			{$ENDIF}
+
+			{-- swap alias for proper username }
+			SrvData^.UserName := SrvData^.ExitInfo.UserInfo.Name;
+
+			{-- Substitute username when hostnames are disabled --}
+			if NoDNSLookup then
+				Connections[CurSlot].Name := SrvData^.UserName;
+
+			{-- Check for anonymous access --}
+			if (ReadBit(LineCfg^.FtpServer^.Attribute, 1)) AND (SUpCase(SrvData^.UserName) = 'ANONYMOUS') then
+				SrvData^.Anonymous := true;
+
+			{-- Reject Guest users --}
+			if (NOT ReadBit(LineCfg^.FtpServer^.Attribute, 1)) AND (ReadBit(SrvData^.Exitinfo.UserInfo.Attribute2, 6)) then
+				begin
+					RaLog('>', Format('[FTPSERV:%d] [%s] Access denied: Guest users not allowed unless Anonymous logins enabled.', [CurSlot, Connections[CurSlot].IpAddr]));
+					SrvData^.UserRec := -1;
+				end;
+
+			{-- Reject sysop logins --}
+			if (NOT ReadBit(LineCfg^.FtpServer^.Attribute, 0))
+			    AND ((SUpcase(SrvData^.ExitInfo.UserInfo.Name) = SUpcase(GlobalCfg^.RaConfig^.SysOp))
+			     OR (SUpcase(SrvData^.ExitInfo.UserInfo.Handle) = SUpcase(GlobalCfg^.RaConfig^.Sysop)))
+			    AND (Connections[CurSlot].IpAddr <> '127.0.0.1') then
+				begin
+					RaLog('>', Format('[FTPSERV:%d] [%s] Access denied: remote sysop logins have been disabled.', [CurSlot, Connections[CurSlot].IpAddr]));
+					SrvData^.UserRec := -1;
+				end; { AllowSysRem }
+
+			{-- Enforce security settings --}
+			if (SrvData^.UserRec > -1) and (LineCfg^.FtpServer^.Security > SrvData^.ExitInfo.UserInfo.Security) then
+				begin
+					RaLog('>', Format('[FTPSERV:%d] [%s] Access denied: insufficient security level for user: %s', [CurSlot, Connections[CurSlot].IpAddr, SrvData^.UserName]));
+					SrvData^.UserRec := -1;
+				end;
+
+			if (SrvData^.UserRec > -1) and (not CheckFlagAccess(SrvData^.ExitInfo.UserInfo.Flags, LineCfg^.FtpServer^.Flags, LineCfg^.FtpServer^.NotFlags)) then
+				begin
+					RaLog('>', Format('[FTPSERV:%d] [%s] Access denied: security flag mismatch for user: %s', [CurSlot, Connections[CurSlot].IpAddr, SrvData^.UserName]));
+					SrvData^.UserRec := -1;
+				end;
+
+			{-- Enforce mixed-session restriction --}
+			if (SrvData^.UserRec > -1) and (not ReadBit(LineCfg^.FtpServer^.Attribute, 7)) then
+				if SrvData^.Anonymous then
+					begin
+						if (count_user('', Connections[CurSlot].IpAddr) > 0) then
+							begin
+								RaLog('>', Format('[FTPSERV:%d] [%s] Access denied: there is already a user logged in from this address.', [CurSlot, Connections[CurSlot].IpAddr]));
+								SrvData^.UserRec := -1;
+							end;
+					end
+				else { not anonymous }
+					begin
+						if (count_anon(Connections[CurSlot].IpAddr) > 0) then
+							begin
+								RaLog('>', Format('[FTPSERV:%d] [%s] Access denied: there is already an anonymous user logged in from this address.', [CurSlot, Connections[CurSlot].IpAddr]));
+								SrvData^.UserRec := -1;
+							end;
+					end;
+
+			{-- Enforce session limits (if not sysop) --}
+			{ XXXNOTE: comparisons are > rather than >= because the current session is counted }
+			if (SrvData^.UserRec > -1) and (SUpCase(SrvData^.UserName) <> SUpcase(GlobalCfg^.RaConfig^.SysOp)) then
+				if SrvData^.Anonymous then
+					begin
+						if (count_anon('') > LineCfg^.FtpServer^.AnonSessions) and (LineCfg^.FtpServer^.AnonSessions > 0) then
+							begin
+								RaLog('>', Format('[FTPSERV:%d] [%s] Access denied: Too many connections for Anonymous', [CurSlot, Connections[CurSlot].IpAddr]));
+								SrvData^.UserRec := -1;
+							end;
+						if (count_anon(Connections[CurSlot].IpAddr) > LineCfg^.FtpServer^.AnonPerIP) and (LineCfg^.FtpServer^.AnonPerIP > 0) then
+							begin
+								RaLog('>', Format('[FTPSERV:%d] [%s] Access denied: Too many connections from this address for Anonymous', [CurSlot, Connections[CurSlot].IpAddr]));
+								SrvData^.UserRec := -1;
+							end;
+					end
+				else { not anonymous }
+					begin
+						if (count_user(SrvData^.UserName, '') > LineCfg^.FtpServer^.UserSessions) and (LineCfg^.FtpServer^.UserSessions > 0) then
+							begin
+								RaLog('>', Format('[FTPSERV:%d] [%s] Access denied: Too many connections for this user: %s', [CurSlot, Connections[CurSlot].IpAddr, SrvData^.UserName]));
+								SrvData^.UserRec := -1;
+							end;
+						if (count_user(''{SrvData^.UserName}, Connections[CurSlot].IpAddr) > LineCfg^.FtpServer^.UsersPerIP) and (LineCfg^.FtpServer^.UsersPerIP > 0) then
+							begin
+								RaLog('>', Format('[FTPSERV:%d] [%s] Access denied: Too many connections from this address for user: %s', [CurSlot, Connections[CurSlot].IpAddr, SrvData^.UserName]));
+								SrvData^.UserRec := -1;
+							end;
+					end;
+			{$IFDEF WITH_DEBUG}
+				DebugObj.DebugLog(logString, 'cmdUser: SrvData^.UserRec >= 0 (end)');
+			{$ENDIF}
+		end; { SrvData^.UserRec >= 0 }
+
+	{-- we always ask for a password to not give away our userlist ;) --------}
+	if SrvData^.Anonymous then
+		SendCodeMsg(CurSlot, 331, 'User name, okay. Please send email address.')
+	else
+		SendCodeMsg(CurSlot, 331, 'User name, okay. Please send password.');
+	{$IFDEF WITH_DEBUG}
+		DebugObj.DebugLog(logString, 'cmdUser (end)');
+	{$ENDIF}
 end; { proc. cmdUser }
 
 (*-+-*-+-*-+-*-+-*-+-*-+-*-+-*-+-*-+-*-+-*-+-*-+-*-+-*-+-*-+-*-+-*-+-*-+-*-*)
@@ -2410,6 +2818,7 @@ var
 	IpFile  	: pFileObj;
 	IpStr   	: String;
 	ipDotCounter: Integer;
+	TmpAddr  : Array[0..3] of Byte;
 
 begin
 	SrvData := Connections[CurSlot].SrvData;
@@ -2417,16 +2826,14 @@ begin
 	{-- attempt to bind to random ports until one succeeds --}
 	for Counter := 1 to 3 do
 		begin
-			{ XXXFIXME: this will be a problem for slow CPUs and high, narrow port ranges; sleep a bit just in case }
-			repeat
-				DataPort := SmallWord(Random(ftp_PasvPorts[2]));
-				SrvData^.DataThread.DoSleep(1);
-			until (DataPort >= ftp_PasvPorts[1]);
+			DataPort := SmallWord(Random(LineCfg^.FtpServer^.PasvPorts[1] - LineCfg^.FtpServer^.PasvPorts[0] + 1) + LineCfg^.FtpServer^.PasvPorts[0]);
 
-			if SrvData^.DataThread.SetupServer(DataPort, ErrorStr, InAddr_Any)
-				then break
-				else DataPort := 0;
-		end; { for }
+			if (DataPort = 0) or (DataPort = LineCfg^.FtpServer^.ServPort) or
+			   (not SrvData^.DataThread.SetupServer(DataPort, ErrorStr, InAddr_Any)) then
+				DataPort := 0
+			else
+				break;
+		end;
 
 	{-- inform the client of the selected port if successful, else send an error code --}
 	if (DataPort = 0) then
@@ -2440,42 +2847,41 @@ begin
 			SrvData^.DataThread.Blocking := False;
 			SockGetSockAddr(SrvData^.FtpSession.SockHandle, DataAddr);
 
-			if (ftp_DynIp <> '') then
+			if (LineCfg^.FtpServer^.DynIp <> '') then
 				begin
 					New(IpFile, Init);
-	
+
 					if (IpFile <> nil) then
 						begin
-							IpFile^.Assign(ftp_DynIp);
+							IpFile^.Assign(LineCfg^.FtpServer^.DynIp);
 							IpFile^.FileMode := ReadMode + DenyNone;
-		
+
 							if IpFile^.Open(1) then
 								begin
 									IpFile^.ReadLn(IpStr);
-									IpFile^.Close;					
+									IpFile^.Close;
 								end;
-							
+
 							IpStr := Trim(IpStr);
-	
+
 							{$IFDEF WITH_DEBUG}
 								DebugObj.DebugLog(logString, 'IpFile: |'+IpStr+'|');
-							{$ENDIF}		
-		
-							Dispose(IpFile, Done);
-		    			end; { IF IpFile <> nil }
-					
-	 				for ipDotCounter := 1 to 4 do
-						ftp_PasvSrvIP[ipDotCounter] := Byte(FVal(ExtractWord(IpStr, ipDotCounter, ['.'], False, False)));
+							{$ENDIF}
 
-				end; {if ftp_DynIp <> ''}
-				
-			{ override address if PasvSrvIP is non-zero and we're not on the loopback interface }
-			if (ftp_PasvSrvIP[1] = 0) or (DataAddr.Sin_Addr.ClassA = 127) then
+							Dispose(IpFile, Done);
+						end; { IF IpFile <> nil }
+
+					LineCfg^.FtpServer^.PasvAddr := StrToIp(IpStr);
+				end; {if LineCfg^.FtpServer^.DynIp <> ''}
+
+			{ override address if PasvAddr is non-zero and we're not on the loopback interface }
+			Move(LineCfg^.FtpServer^.PasvAddr, TmpAddr, SizeOf(TmpAddr));
+			if (TmpAddr[0] = 0) or (DataAddr.Sin_Addr.ClassA = 127) then
 				TempStr := Format('%d,%d,%d,%d', [DataAddr.Sin_Addr.ClassA, DataAddr.Sin_Addr.ClassB, DataAddr.Sin_Addr.ClassC, DataAddr.Sin_Addr.ClassD])
 			else
-				TempStr := Format('%d,%d,%d,%d', [ftp_PasvSrvIP[1], ftp_PasvSrvIP[2], ftp_PasvSrvIP[3], ftp_PasvSrvIP[4]]);
+				TempStr := Format('%d,%d,%d,%d', [TmpAddr[0], TmpAddr[1], TmpAddr[2], TmpAddr[3]]);
 
-			DataPort := DataPort + ftp_PasvOffset;
+			DataPort := DataPort + LineCfg^.FtpServer^.PasvOffset;
 			TempStr := Format('Entering Passive Mode (%s,%d,%d)', [TempStr, Hi(DataPort), Lo(DataPort)]);
 
 			SendCodeMsg(CurSlot, 227, TempStr);
@@ -2754,6 +3160,8 @@ begin
   Connections[CurSlot].IpAddr := '';
   Connections[CurSlot].StartTimeStr := '';
   Connections[CurSlot].ClientRC := -1;
+  ftpConnectionRec(Connections[CurSlot].SrvData^).SessionRxRate.Done;
+  ftpConnectionRec(Connections[CurSlot].SrvData^).SessionTxRate.Done;
   ftpConnectionRec(Connections[CurSlot].SrvData^).UserName := '';
   ftpConnectionRec(Connections[CurSlot].SrvData^).PasswordCRC := -1;
   FreeMem(Connections[CurSlot].SrvData);
@@ -2782,6 +3190,10 @@ var ClientAddr  : PSockAddr;                     { Address socket structure }
 begin
   {-- Initialize all variables ----------------------------------------------}
   FillChar(Connections, SizeOf(Connections), #0);
+  GlobalRxRate.Init;
+  GlobalTxRate.Init;
+  GlobalRxRate.MaxRate  := LineCfg^.FtpServer^.GlobalRxRate;
+  GlobalTxRate.MaxRate  := LineCfg^.FtpServer^.GlobalTxRate;
 
   {-- A variable passed to the Accept() call --------------------------------}
   TempLen := SockAddr_len;
@@ -2791,11 +3203,14 @@ begin
   FillChar(ClientAddr^, SizeOf(ClientAddr^), #00);
 
   {-- Start the DIZ importer ------------------------------------------------}
-  if ftp_ImportDiz then
+  if ReadBit(LineCfg^.FtpServer^.Attribute, 4) then
     begin
       New(DizImportThread, Init);
       DizImportThread^.CreateThread(StackSize, @xDizImportThread, DizImportThread, 0);
+      DizImportThread^.NoExec := Debug_DizNoExec;
     end;
+
+  ftp_ServerRunning := True;
 
   {-- This loop will keep going till the program is ended -------------------}
   repeat
@@ -2811,7 +3226,7 @@ begin
 
     {-- Select a slot for this session --------------------------------------}
     SelectedSlot := 00;
-    for Counter := 01 to ftp_MaxSessions do
+    for Counter := 01 to LineCfg^.FtpServer^.MaxSessions do
       if Connections[Counter].Name = '' then
         begin
           SelectedSlot := Counter;
@@ -2853,8 +3268,13 @@ begin
             ftpConnectionRec(Connections[SelectedSlot].SrvData^).CurArea := -1;
             ftpConnectionRec(Connections[SelectedSlot].SrvData^).CurGroup := -1;
             ftpConnectionRec(Connections[SelectedSlot].SrvData^).ResumeOfs := 0;
-            ftpConnectionRec(Connections[SelectedSlot].SrvData^).VirtIdxBuff := '';
-            ftpConnectionRec(Connections[SelectedSlot].SrvData^).VirtIdxArea := -1;
+            ftpConnectionRec(Connections[SelectedSlot].SrvData^).IndexBuff00 := '';
+            ftpConnectionRec(Connections[SelectedSlot].SrvData^).IndexBuff02 := '';
+            ftpConnectionRec(Connections[SelectedSlot].SrvData^).IndexArea := -1;
+            ftpConnectionRec(Connections[SelectedSlot].SrvData^).SessionRxRate.Init;
+            ftpConnectionRec(Connections[SelectedSlot].SrvData^).SessionRxRate.MaxRate := LineCfg^.FtpServer^.SessionRxRate;
+            ftpConnectionRec(Connections[SelectedSlot].SrvData^).SessionTxRate.Init;
+            ftpConnectionRec(Connections[SelectedSlot].SrvData^).SessionTxRate.MaxRate := LineCfg^.FtpServer^.SessionTxRate;
             New(Connections[SelectedSlot].ServerThread, Init);
             ftpConnectionRec(Connections[SelectedSlot].SrvData^).DataThread := TTcpServer.Create;
             ftpConnectionRec(Connections[SelectedSlot].SrvData^).DataThread.ReuseAddr := True; { is this needed? }
@@ -2878,8 +3298,10 @@ begin
 
   until (ClientRC = -1) OR (TermProgram);
 
+  ftp_ServerRunning := False;
+
   {-- Stop the DIZ importer -------------------------------------------------}
-  if ftp_ImportDiz then
+  if ReadBit(LineCfg^.FtpServer^.Attribute, 4) then
     begin
       DizImportThread.Stop(True);
       Dispose(DizImportThread, Done);
@@ -2902,6 +3324,15 @@ var
 	Counter2 : Integer;
 	TmpStr	 : String;
 begin
+	if NOT MemMan.AllocMem(LineCfg^.FtpServer, SizeOf(FtpServerRecord), 'FtpServer', 'ShowHeader') then
+		begin
+			WriteLn;
+			Writeln('Sorry you need at least ', SizeOf(FtpServerRecord) div 1024, 'k more memory to run');
+			Halt(255);
+		end; { Not enough memory }
+
+	ReadFtpServELE;
+
 	for Counter := 1 to ParamCount do
 		begin
 			TmpStr := ParamStr(Counter);
@@ -2911,7 +3342,14 @@ begin
 					begin
 						{-- Option: -XA for anonymous access -------------------}
 						if (UpCase(TmpStr[3]) ) = 'A' then
-							ftp_AllowAnonymous := TRUE;
+							SetBit(LineCfg^.FtpServer^.Attribute, 4);
+
+						{-- Option: -XDIZNOEXEC XXXDEBUG: to disable Spawn() of EleFile }
+						if SUpCase(Copy(TmpStr, 2, 10)) = 'XDIZNOEXEC' then
+							begin
+								SetBit(LineCfg^.FtpServer^.Attribute, 4);
+								Debug_DizNoExec := True;
+							end;
 					end; { case 'X' }
 
 				'P':
@@ -2920,81 +3358,88 @@ begin
 						if SUpCase(Copy(TmpStr, 2, 10)) = 'PASVSRVIP:' then
 							begin
 								RemoveWordNr(TmpStr, 1, [':'], False);
-
-								for Counter2 := 1 to 4 do
-									ftp_PasvSrvIP[Counter2] := Byte(FVal(ExtractWord(TmpStr, Counter2, ['.'], False, False)));
+								LineCfg^.FtpServer^.PasvAddr := StrToIp(TmpStr);
 							end { if }
 
 						{-- Option: -PASVDYNIP for overriding reported IP address by an dynamic IP --}
 						else if SUpCase(Copy(TmpStr, 2, 10)) = 'PASVDYNIP:' then
-							ftp_DynIp := ExtractWord(TmpStr, 2, [':'], False, False)
+							LineCfg^.FtpServer^.DynIp := ExtractWord(TmpStr, 2, [':'], False, False)
 
 						{-- Option: -PASVPORTS for restricting passive port range --}
 						else if SUpCase(Copy(TmpStr, 2, 10)) = 'PASVPORTS:' then
 							begin
 								RemoveWordNr(TmpStr, 1, [':'], False);
 
-								for Counter2 := 1 to 2 do
-									ftp_PasvPorts[Counter2] := SmallWord(FVal(ExtractWord(TmpStr, Counter2, ['-'], False, False)));
+								for Counter2 := 0 to 1 do
+									LineCfg^.FtpServer^.PasvPorts[Counter2] := SmallWord(FVal(ExtractWord(TmpStr, Counter2, ['-'], False, False)));
 							end { if }
 
 						{-- Option: -PASVOFFSET for padding reported passive port number --}
 						else if SUpCase(Copy(TmpStr, 2, 11)) = 'PASVOFFSET:' then
-								ftp_PasvOffset := SmallWord(FVal(ExtractWord(TmpStr, 2, [':'], False, False)));
+								LineCfg^.FtpServer^.PasvOffset := SmallWord(FVal(ExtractWord(TmpStr, 2, [':'], False, False)));
 
 					end; { case 'P' }
 
 				'F':
 					begin
+						{-- Option: -FTP to enable FTP server --}
+						if SUpCase(Copy(TmpStr, 2, 3)) = 'FTP' then
+							if LineCfg^.FtpServer^.MaxSessions = 0 then
+								LineCfg^.FtpServer^.MaxSessions := FtpMaxSessions;
+
 						{-- Option: -FTPXLOG for transfer summary log --}
 						if SUpCase(Copy(TmpStr, 2, 8)) = 'FTPXLOG:' then
-							ftp_TransferLog := ExtractWord(TmpStr, 2, [':'], False, False);
+							LineCfg^.FtpServer^.TransferLog := ExtractWord(TmpStr, 2, [':'], False, False);
 
 						{-- Option: -FTPINDEX for virtual index files --}
 						if SUpCase(Copy(TmpStr, 2, 9)) = 'FTPINDEX:' then
-							ftp_VirtualIndex := ExtractWord(TmpStr, 2, [':'], False, False);
+							LineCfg^.FtpServer^.IndexName00 := ExtractWord(TmpStr, 2, [':'], False, False);
 
 						{-- Option: -FTPDIZ for importing uploaded file descriptions --}
 						if SUpCase(Copy(TmpStr, 2, 6)) = 'FTPDIZ' then
-							ftp_ImportDiz := True;
+							SetBit(LineCfg^.FtpServer^.Attribute, 4);
 
 						{-- Option: -FTPNODE for assigning node numbers to FTP sessions --}
 						if SUpCase(Copy(TmpStr, 2, 8)) = 'FTPNODE:' then
 							begin
-								ftp_FirstNode := Byte(FVal(ExtractWord(TmpStr, 2, [':'], False, False)));
+								LineCfg^.FtpServer^.FirstNode := Byte(FVal(ExtractWord(TmpStr, 2, [':'], False, False)));
 
-								if ftp_FirstNode = 0 then
-									ftp_FirstNode := 255;
+								if LineCfg^.FtpServer^.FirstNode = 0 then
+									LineCfg^.FtpServer^.FirstNode := 255;
 							end;
 
 						{-- Option: -FTPLIMIT for session limit --}
 						if SUpCase(Copy(TmpStr, 2, 9)) = 'FTPLIMIT:' then
 							begin
-								ftp_MaxSessions := LongInt(FVal(ExtractWord(TmpStr, 2, [':'], False, False)));
+								LineCfg^.FtpServer^.MaxSessions := LongInt(FVal(ExtractWord(TmpStr, 2, [':'], False, False)));
 
-								if ftp_MaxSessions = 0 then
-									ftp_MaxSessions := FtpMaxSessions;
+								if LineCfg^.FtpServer^.MaxSessions = 0 then
+									LineCfg^.FtpServer^.MaxSessions := FtpMaxSessions;
 							end;
 
 						{-- Option: -FTPPORT for incoming connections --}
 						if SUpCase(Copy(TmpStr, 2, 8)) = 'FTPPORT:' then
 							begin
-								ftp_ServerPort := LongInt(FVal(ExtractWord(TmpStr, 2, [':'], False, False)));
+								LineCfg^.FtpServer^.ServPort := SmallWord(FVal(ExtractWord(TmpStr, 2, [':'], False, False)));
 
-								if ftp_ServerPort = 0 then
-									ftp_ServerPort := FtpServerPort;
+								if LineCfg^.FtpServer^.ServPort = 0 then
+									LineCfg^.FtpServer^.ServPort := FtpServerPort;
 							end;
 
 						{-- Option: -FTPUSERON for updating USERON.BBS and LASTCALL.BBS --}
 						if SUpCase(Copy(TmpStr, 2, 9)) = 'FTPUSERON' then
-							ftp_UpdateUseron := True;
+							SetBit(LineCfg^.FtpServer^.Attribute, 5);
+
+						{-- Option: -FTPNODUPE0 for ignoring empty orphan duplicates on upload --}
+						if SUpCase(Copy(TmpStr, 2, 10)) = 'FTPNODUPE0' then
+							ftpIgnoreEmptyDupe := True;
 					end { case 'F' }
 			end; { case }
 	end; { for }
 
 	{ ensure the PasvOffset doesn't result in an invalid upper port limit }
-	if (ftp_PasvPorts[2] + ftp_PasvOffset > 65535) then
-		ftp_PasvPorts[2] := ftp_PasvPorts[2] - ftp_PasvOffset;
+	if (LineCfg^.FtpServer^.PasvPorts[1] + LineCfg^.FtpServer^.PasvOffset > 65535) then
+		LineCfg^.FtpServer^.PasvPorts[1] := LineCfg^.FtpServer^.PasvPorts[1] - LineCfg^.FtpServer^.PasvOffset;
 
 end; { proc. ftp_initserver }
 
@@ -3006,7 +3451,7 @@ begin
   FtpServerSocket := TTcpServer.Create;
   FtpServerSocket.ReUseAddr := true;
 
-  if NOT FtpServerSocket.SetupServer(ftp_ServerPort, ErrorStr, InAddr_Any) then
+  if NOT FtpServerSocket.SetupServer(LineCfg^.FtpServer^.ServPort, ErrorStr, InAddr_Any) then
     FatalError(ErrorStr);
 
   FtpServerSocket.Blocking := false;

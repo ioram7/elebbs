@@ -39,7 +39,8 @@ uses Global,
              CfgRec,
               GenDos,
                Dos,
-                ObjDec;
+                ObjDec,
+                 WordStr;
 
 
 procedure FullInsert(Source: String; var S: String; Index: Integer);
@@ -78,6 +79,8 @@ function  ReformatDate(ODate: String; Mask: String): String;
 function  NoColorCopy(S: String; Index: Integer; Count: Integer): String;
 function  Bool2Str(B: Boolean): String;
 function  FixUserName(InputStr: String): String;
+function  IpToStr(LongAddr: LongInt): String;
+function  StrToIp(StrAddr: String): LongInt;
 {$IFNDEF MSDOS}
 procedure AnsiFullInsert(Source: AnsiString; var S: AnsiString; Index: Integer);
 Function  AnsiMakeLen(Str : AnsiString; Len : Longint; Fill : fillUp; Fore:Boolean) : AnsiString;
@@ -892,5 +895,34 @@ begin
   Az2Str := TmpStr;
 end; { func. Az2Str }
 
+(*-+-*-+-*-+-*-+-*-+-*-+-*-+-*-+-*-+-*-+-*-+-*-+-*-+-*-+-*-+-*-+-*-+-*-+-*-*)
+
+function IpToStr(LongAddr: LongInt): String;
+{
+	Convert signed 32bit integer IPv4 address to dotted quad string
+}
+var
+	QuadAddr: Array[0..3] of Byte;
+begin
+	Move(LongAddr, QuadAddr, SizeOf(QuadAddr));
+	IpToStr := FStr(QuadAddr[0]) + '.' + FStr(QuadAddr[1]) + '.' + FStr(QuadAddr[2]) + '.' + FStr(QuadAddr[3]);
+end;
+
+(*-+-*-+-*-+-*-+-*-+-*-+-*-+-*-+-*-+-*-+-*-+-*-+-*-+-*-+-*-+-*-+-*-+-*-+-*-*)
+
+function StrToIp(StrAddr: String): LongInt;
+{
+	Convert dotted quad IPv4 address string to signed 32bit integer
+}
+var
+	QuadAddr: Array[0..3] of Byte;
+	Count : LongInt;
+begin
+	for Count := 0 to 3 do
+		QuadAddr[Count] := Byte(FVal(ExtractWord(StrAddr, Count+1, ['.'], False, False)));
+	StrToIp := LongInt(QuadAddr);
+end;
+
+(*-+-*-+-*-+-*-+-*-+-*-+-*-+-*-+-*-+-*-+-*-+-*-+-*-+-*-+-*-+-*-+-*-+-*-+-*-*)
 
 end. { StUtils }

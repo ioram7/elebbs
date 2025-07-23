@@ -41,6 +41,7 @@ uses
              ObjDec
 {$IFDEF WIN32},windows{$ENDIF}
 {$IFDEF OS2}   ,os2base{$ENDIF}
+{$IFDEF UNIX}   ,BaseUnix, Unix{$ENDIF}
 {$IFDEF WINGUI}
       ,Sysutils,
        Controls
@@ -128,6 +129,10 @@ function  GetOffset: SmallInt;
 {$IFDEF WIN32}
 function  GetOffset: LongInt;
 {$ENDIF}
+{$IFDEF UNIX}
+function  GetOffset: LongInt;
+{$ENDIF}
+
 function  OffsetToISO(mins: LongInt): String;
 function  ISO8601: String;
 
@@ -1004,6 +1009,18 @@ begin
 	os2base.DosGetDateTime(Dt);
 	GetOffset := Dt.TimeZone;
 end; { func. GetOffset (OS/2) }
+{$ENDIF}
+
+{$IFDEF UNIX}
+function GetOffset: LongInt;
+	{ return local UTC offset in minutes (Unix) }
+var
+	Tv: TimeVal;
+	Tz: TimeZone;
+begin
+	FpGetTimeOfDay(@Tv, @Tz);
+	GetOffset := Tz.tz_minuteswest;
+end; { func. GetOffset (Unix) }
 {$ENDIF}
 
 (*-+-*-+-*-+-*-+-*-+-*-+-*-+-*-+-*-+-*-+-*-+-*-+-*-+-*-+-*-+-*-+-*-+-*-+-*-*)

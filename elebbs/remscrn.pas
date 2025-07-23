@@ -41,7 +41,7 @@ unit REMSCRN;
 {$ENDIF}
 
 {$IFDEF ELEUNIX}
-  {$DEFINE TCPIP}
+  {.$DEFINE TCPIP}
 {$ENDIF}
 
 uses Global,

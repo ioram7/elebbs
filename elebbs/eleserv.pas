@@ -164,6 +164,8 @@ begin
   WriteAT(05, 05, mnuNormColor, 'Localhost           : ' + TempStr);
   WriteAT(05, 06, mnuNormColor, 'Servers active      : ' + SrvString);
   WriteAT(05, 07, mnuNormColor, 'Current connections : ');
+  WriteAT(05, 08, mnuNormColor, 'FTP Statistics      : UL: 0.00 K/s,  DL: 0.00 K/s');
+
 
   {-- Create the session box -----------------------------------------------}
   ShadFillBoxTitle(03, 11, 76, 22, mnuBoxColor, mnuStyle, true, ' Sessions ');
@@ -241,6 +243,7 @@ procedure UpdateWindow;
 var Counter    : Longint;
     DisplayedNo: Longint;
     SaveUpdate : Boolean;
+    TempStr    : String;
 begin
   {-- Make sure we dont update for a dead server ---------------------------}
   if HaltScrn then EXIT;
@@ -258,6 +261,13 @@ begin
   srvUpdateScreen := FALSE;
   SaveUpdate := DirectScrnUpdate;
   DirectScrnUpdate := FALSE;
+
+  {-- server stats ---------------------------------------------------------}
+  if ftp_ServerRunning then
+    begin
+      PartClear(05, 08, 74, 08, mnuNormColor, ' ');
+      WriteAT(05, 08, mnuNormColor, 'FTP Statistics      : UL: ' +Real2Str(GlobalRxRate.calc_rate / 1024, 3, 2) +' K/s,  DL: ' + Real2Str(GlobalTxRate.calc_rate / 1024, 3, 2) + ' K/s');
+    end;
 
   {-- Clear the box --------------------------------------------------------}
   ShadFillBoxTitle(03, 11, 76, 22, mnuBoxColor, mnuStyle, true, ' Sessions ');
@@ -278,9 +288,17 @@ begin
              begin
                Inc(DisplayedNo);
 
+               {-- generate stats ------------------------------------------}
+               TempStr := '';
+               if (Connections[Counter].SrvType = SrvFTP) and (Connections[Counter].SrvData <> nil) then
+                 if ftpConnectionRec(Connections[Counter].SrvData^).SessionRxRate.calc_rate > 0 then
+                   TempStr := '  U:'+Real2Str(ftpConnectionRec(Connections[Counter].SrvData^).SessionRxRate.calc_rate / 1024, 3, 1)
+                 else if ftpConnectionRec(Connections[Counter].SrvData^).SessionTxRate.calc_rate > 0 then
+                   TempStr := '  D:'+Real2Str(ftpConnectionRec(Connections[Counter].SrvData^).SessionTxRate.calc_rate / 1024, 3, 1);
+
                {-- Now actually display the data ---------------------------}
                WriteAT(05, 11 + Counter, mnuNormColor, MakeLen(ServiceToStr(SrvType), 10, Space, false, false));
-               WriteAT(16, 11 + Counter, mnuNormColor, MakeLen(Name, 34, space, false, false));
+               WriteAT(16, 11 + Counter, mnuNormColor, MakeLen(Name, 34-length(TempStr), space, false, false)+TempStr);
                WriteAT(51, 11 + Counter, mnuNormColor, MakeLen(IpAddr, 15, space, false, false));
                WriteAT(67, 11 + Counter, mnuNormColor, MakeLen(StartTimeStr, 8, space, false, false));
              end; { if }
@@ -332,6 +350,7 @@ begin
   WriteLn('-FTPLIMIT:<x>       Allow a maximum of <x> FTP connections');
   WriteLn('-FTPUSERON          Write login info to USERON.BBS and LASTCALL.BBS');
   WriteLn('-FTPNODE:<x>        Assign node numbers to FTP sessions, starting at <X>');
+  WriteLn('-FTPNODUPE0         Ignore empty orphaned files on upload dupe check');
   WriteLn;
   WriteLn;
   CursorOn;

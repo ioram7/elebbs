@@ -137,7 +137,7 @@ uses
           Linux,
         {$ELSE}
           Unix,
-	  OldLinux,
+	  BaseUnix,
         {$ENDIF}
       {$ENDIF}
 
@@ -1491,7 +1491,7 @@ begin
               Writeln(Bat_F, '#!/bin/bash');
               Writeln(Bat_F, Path, #32, Cmd);
               Close(Bat_F);
-              ChMod(GlobalCfg^.RaConfig^.SysPath + 'x_tmp' + FStr(TempNum) + '.sh', 493);
+              fpChMod(GlobalCfg^.RaConfig^.SysPath + 'x_tmp' + FStr(TempNum) + '.sh', 493);
             {$i+}
             if IOResult>00 then ;
 

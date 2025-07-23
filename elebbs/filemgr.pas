@@ -65,8 +65,8 @@ uses  Crt, LongStr, Multi,
         {$IFDEF VER1_0}
           Linux,
         {$ELSE}
-          OldLinux,
           Unix,
+          BaseUnix,
         {$ENDIF}
       {$ENDIF}
 
@@ -2840,7 +2840,7 @@ begin
           Writeln(Bat_F, '#!/bin/bash');
           Writeln(Bat_F, S);
           Close(Bat_F);
-          ChMod(GlobalCfg^.RaConfig^.SysPath + 'x_tmp' + FStr(TempNum) + '.sh', 493);
+          fpChMod(GlobalCfg^.RaConfig^.SysPath + 'x_tmp' + FStr(TempNum) + '.sh', 493);
         {$i+}
         if IOResult>00 then ;
 

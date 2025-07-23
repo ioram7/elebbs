@@ -83,6 +83,9 @@ Const ConfigRaName : String[128] = '';
  IMPLEMENTATION
 (*-+-*-+-*-+-*-+-*-+-*-+-*-+-*-+-*-+-*-+-*-+-*-+-*-+-*-+-*-+-*-+-*-+-*-+-*-*)
 
+var
+	FtpServMenu: VxMenuPtr;
+
 
 (*-+-*-+-*-+-*-+-*-+-*-+-*-+-*-+-*-+-*-+-*-+-*-+-*-+-*-+-*-+-*-+-*-+-*-+-*-*)
 
@@ -118,6 +121,7 @@ begin
  ReleaseMem(Events, SizeOf(EventRecordArray));
  ReleaseMem(LineCfg^.Telnet, SizeOf(TelnetRecord));
  ReleaseMem(LineCfg^.NewsServer, SizeOf(NewsServerRecord));
+ ReleaseMem(LineCfg^.FtpServer, SizeOf(FtpServerRecord));
 
  ReleaseMem(OldConfig, SizeOf(ConfigRecord));
  ReleaseMem(OldEleConfig, SizeOf(EleConfigRecord));
@@ -125,6 +129,7 @@ begin
  ReleaseMem(OldEvents, SizeOf(EventRecordArray));
  ReleaseMem(OldTelnet, SizeOf(TelnetRecord));
  ReleaseMem(OldNewsServer, SizeOf(NewsServerRecord));
+ ReleaseMem(OldFtpServer, SizeOf(FtpServerRecord));
 
  ReleaseMem(PullMenu, SizeOf(PullMenu^));
  if MnuFileMenu <> nil then
@@ -137,12 +142,15 @@ begin
    ReleaseMem(mnuModemMenu^.PullInf, SizeOf(mnuModemMenu^.PullInf^));
  if MnuManagerMenu <> nil then
    ReleaseMem(mnuManagerMenu^.PullInf, SizeOf(mnuManagerMenu^.PullInf^));
+ if MnuTcpIpMenu <> nil then
+   ReleaseMem(mnuTcpIpMenu^.PullInf, SizeOf(mnuTcpIpMenu^.PullInf^));
 
  ReleaseMem(mnuFileMenu, SizeOf(mnuFileMenu^));
  ReleaseMem(mnuSystemMenu, SizeOf(mnuSystemMenu^));
  ReleaseMem(mnuOptionsMenu, SizeOf(mnuOptionsMenu^));
  ReleaseMem(mnuModemMenu, SizeOf(mnuModemMenu^));
  ReleaseMem(mnuManagerMenu, SizeOf(mnuManagerMenu^));
+ ReleaseMem(mnuTcpIpMenu, SizeOf(mnuTcpIpMenu^));
 
  {$IFNDEF DELPHI}
  If ErrorAddr<>Nil then
@@ -206,7 +214,7 @@ procedure ProcessKey(var CH:Char);
 begin
  { ALT-Z } if CH=#44 then DoDosShell('Type "EXIT" to return to '+ConfigName+'.');
  { ALT-J } if CH=#36 then DoDosShell('Type "EXIT" to return to '+ConfigName+'.');
- { ALT-K } if CH=#18 then DoPickFunctionKey(CH);
+ { ALT-E } if CH=#18 then DoPickFunctionKey(CH);
  { F1 }    if CH=#59 then If EdittingMsgArea then DoEditAreaNr(74, 1, RdxName(MessagesFileName), MessageInf^.AreaNum);
  { F1 }    if CH=#59 then If EdittingFileArea then DoEditAreaNr(61, 1, RdxName(FilesFileName), FilesInf.AreaNum);
  { F1 }    if CH=#59 then If (EdittingGroupRecord) AND (GroupMessage) then DoEditAreaNr(61, 6, RdxName(MGroupsFileName),
@@ -261,7 +269,7 @@ begin
   Menu.Y       := 4;
   Menu.HiLight := 01;
   Menu.AddSpace:= True;
-  Menu.Title   := ' Newsserver ';
+  Menu.Title   := ' News Server ';
   Menu.PosArray[1].XInc := 00;
   Menu.PosArray[1].YDec := 00;
 
@@ -307,6 +315,182 @@ begin
   RemoveMenu(Menu);
   ReleaseMem(Menu.PullInf, SizeOf(PullInfRecArray));
 end; { proc. DoNewsServer }
+
+(*-+-*-+-*-+-*-+-*-+-*-+-*-+-*-+-*-+-*-+-*-+-*-+-*-+-*-+-*-+-*-+-*-+-*-+-*-*)
+
+function FtpServValue: String;
+var
+	Menu: VxMenuPtr;
+
+begin
+	Menu := FtpServMenu;
+
+	if (Menu = nil) or (Menu^.MenuPtr = nil) or (Menu^.MenuPtr^.Data = nil) then
+		begin
+			FtpServValue := '';
+			exit;
+		end;
+
+	with LineCfg^.FtpServer^ do
+		case VxItemRec(Menu^.MenuPtr^.Data^).ID of
+			3728: FtpServValue := FStr(SmallWord(Security));
+			3729: FtpServValue := Byte2FlagsOff(Flags[1], NotFlags[1]);
+			3730: FtpServValue := Byte2FlagsOff(Flags[2], NotFlags[2]);
+			3731: FtpServValue := Byte2FlagsOff(Flags[3], NotFlags[3]);
+			3732: FtpServValue := Byte2FlagsOff(Flags[4], NotFlags[4]);
+			3701: FtpServValue := FStr(SmallWord(MaxSessions));
+			3722: FtpServValue := FStr(UserSessions);
+			3725: FtpServValue := FStr(AnonSessions);
+			3726: FtpServValue := FStr(UsersPerIP);
+			3727: FtpServValue := FStr(AnonPerIP);
+			3702: FtpServValue := IpToStr(ServAddr);
+			3703: FtpServValue := FStr(ServPort);
+			3704: FtpServValue := Bit2Str(Attribute, 0);         { Allow remote sysop logon }
+			3705: FtpServValue := Bit2Str(Attribute, 1);         { Allow anonymous logins   }
+			3706: FtpServValue := Bit2Str(Attribute, 2);         { Allow downloads          }
+			3707: FtpServValue := Bit2Str(Attribute, 3);         { Allow uploads            }
+			3708: FtpServValue := Bit2Str(Attribute, 4);         { Import descriptions      }
+			3709: FtpServValue := Bit2Str(Attribute, 5);         { Update USERON.BBS        }
+			3723: FtpServValue := Bit2Str(Attribute, 6);         { Block FXP transfers      }
+			3724: FtpServValue := Bit2Str(Attribute, 7);         { Allow mixed clients      }
+			3710: FtpServValue := FStr(SmallWord(FirstNode));
+			3711: FtpServValue := Copy(TransferLog, 1, 36);
+			3712: FtpServValue := Copy(IndexName00, 1, 36);
+			3713: FtpServValue := Copy(IndexName02, 1, 36);
+			3714: FtpServValue := IpToStr(PasvAddr);
+			3715: FtpServValue := FStr(PasvPorts[0])+'-'+FStr(PasvPorts[1]);
+			3716: FtpServValue := FStr(PasvOffset);
+			3717: FtpServValue := Copy(DynIP, 1, 36);
+			3718: FtpServValue := FStr(GlobalTxRate);
+			3719: FtpServValue := FStr(SessionTxRate);
+			3720: FtpServValue := FStr(GlobalRxRate);
+			3721: FtpServValue := FStr(SessionRxRate);
+			else
+				FtpServValue := '';
+		end; { case; with LineCfg^.FtpServer^ }
+end; { func. FtpServValue }
+
+procedure DoFTPserver;
+var
+	Menu      : VxMenuPtr;
+	Choice    : Word;
+	CH        : Char;
+	TmpWord   : SmallWord;
+	TmpStr    : String;
+	LineYPos,
+	EditXPos  : Byte;
+
+begin
+	New(Menu, Init);
+	FtpServMenu := Menu;
+
+	with Menu^ do
+		begin
+			cbkGetValue := FtpServValue;
+			setWindowStyle({Style}1, {Title}' FTP Server ', {X1}22, {Y1}4, {ItemLen}18, {EditLen}32, {PageLen}15);
+
+			{ last: 3732 }
+			AddItem(NewData(3728, 'Security          ', 'Minimum security level for FTP access', #0));
+			AddItem(NewData(3729, 'A flags           ', 'Flag settings required for FTP access', #0));
+			AddItem(NewData(3730, 'B flags           ', 'Flag settings required for FTP access', #0));
+			AddItem(NewData(3731, 'C flags           ', 'Flag settings required for FTP access', #0));
+			AddItem(NewData(3732, 'D flags           ', 'Flag settings required for FTP access', #0));
+			AddItem(NewData(3701, 'Maximum sessions  ', 'Restrict total number of concurrent sessions (0 = disabled)', #0));
+			AddItem(NewData(3722, 'User sessions     ', 'Restrict number of concurrent sessions per user (0 = unlimited)', #0));
+			AddItem(NewData(3725, 'Anonymous sessions', 'Restrict number of anonymous clients (0 = disabled)', #0));
+			AddItem(NewData(3726, 'Users per IP      ', 'Restrict number of logged-in users per IP (0 = disabled)', #0));
+			AddItem(NewData(3727, 'Anonymous per IP  ', 'Restrict number of anonymous sessions per IP (0 = disabled)', #0));
+			AddItem(NewData(3702, 'Server address    ', 'Bind to this address/interface (0.0.0.0 = any)', #0));
+			AddItem(NewData(3703, 'Server port       ', 'Listen on this port', #0));
+			AddItem(NewData(3704, 'Allow remote sysop', 'Allow the sysop to log in remotely?', #0));
+			AddItem(NewData(3705, 'Allow anonymous   ', 'Allow anonymous users?', #0));
+			AddItem(NewData(3706, 'Allow downloads   ', 'Allow file transfers to users?', #0));
+			AddItem(NewData(3707, 'Allow uploads     ', 'Allow file transfers from users?', #0));
+			AddItem(NewData(3724, 'Allow mixed client', 'Allow logged-in & anonymous sessions from same IP?', #0));
+			AddItem(NewData(3708, 'Import upload DIZ ', 'Import descriptions from uploaded files (FILE_ID.DIZ or DESC.SDI)', #0));
+			AddItem(NewData(3709, 'Update USERON.BBS ', 'Update USERON.BBS file?', #0));
+			AddItem(NewData(3723, 'Block FXP xfer    ', 'Block the FXP transfer protocol?', #0));
+			AddItem(NewData(3710, 'Start node#       ', 'Assign node numbers to FTP sessions >= this (required for USERON.BBS)', #0));
+			AddItem(NewData(3711, 'Transfer summary  ', 'Write a summary of all file transfers to this file (empty = disabled)', #0));
+			AddItem(NewData(3712, 'Short index name  ', 'Name of virtual area list - short descriptions (empty = disabled)', #0));
+			AddItem(NewData(3713, 'Long index name   ', 'Name of virtual area list - long descriptions (empty = disabled)', #0));
+			AddItem(NewData(3714, 'PASV address      ', 'Report fake IP address to the client (0.0.0.0 = disabled)', #0));
+			AddItem(NewData(3715, 'PASV port range   ', 'Connections will use a random port in this range (0 < first < last <= 65535)', #0));
+			AddItem(NewData(3716, 'PASV port offset  ', 'Report fake port (real+offset) to the client (0 = disabled)', #0));
+			AddItem(NewData(3717, 'Dynamic IP file   ', 'Reload "PASV address" from this file periodically (empty = disabled)', #0));
+			AddItem(NewData(3718, 'Global DL speed   ', 'Global download rate limit in B/s (0 = disabled)', #0));
+			AddItem(NewData(3719, 'Session DL speed  ', 'Session download rate limit in B/s (0 = disabled)', #0));
+			AddItem(NewData(3720, 'Global UL speed   ', 'Global upload rate limit in B/s (0 = disabled)', #0));
+			AddItem(NewData(3721, 'Session UL speed  ', 'Session upload rate limit in B/s (0 = disabled)', #0));
+			ShowWindow(True, True);
+			ShowMenu;
+		end; { with Menu^ }
+
+	repeat
+		Menu^.ShowItem(True);
+		UpdateScreenBuffer(True); { force screen update }
+
+		Choice := Menu^.GetSelection;
+
+		LineYPos := Menu^.PageY1+Menu^.PagePos;
+		EditXPos := Menu^.PageX1+Menu^.ItemLen+Menu^.EditPad;
+
+		with lineCfg^.FtpServer^ do
+			Case Choice of
+				3728: EditWord(Security, EditXPos, LineYPos, mnuEditColor, True);
+				3729: begin Menu^.ShowWindow(False, False); EditFlags2(Flags[1], NotFlags[1], True, EditXPos, LineYPos); Menu^.ShowWindow(False, True); end;
+				3730: begin Menu^.ShowWindow(False, False); EditFlags2(Flags[2], NotFlags[2], True, EditXPos, LineYPos); Menu^.ShowWindow(False, True); end;
+				3731: begin Menu^.ShowWindow(False, False); EditFlags2(Flags[3], NotFlags[3], True, EditXPos, LineYPos); Menu^.ShowWindow(False, True); end;
+				3732: begin Menu^.ShowWindow(False, False); EditFlags2(Flags[4], NotFlags[4], True, EditXPos, LineYPos); Menu^.ShowWindow(False, True); end;
+				3701: EditLongInt(MaxSessions, EditXPos, LineYPos, mnuEditColor, 6, True);
+				3722: EditWord(UserSessions, EditXPos, LineYPos, mnuEditColor, True);
+				3725: EditWord(AnonSessions, EditXPos, LineYPos, mnuEditColor, True);
+				3726: EditWord(UsersPerIP, EditXPos, LineYPos, mnuEditColor, True);
+				3727: EditWord(AnonPerIP, EditXPos, LineYPos, mnuEditColor, True);
+				3702:
+					begin
+						TmpStr := IpToStr(ServAddr);
+						GetString(EditXPos, LineYPos, mnuEditColor, TmpStr, [#46,#48..#57], [#27, #13], 15, 15, False, False, True, False, 0);
+						ServAddr := StrToIp(TmpStr);
+					end;
+				3703: EditWord(ServPort, EditXPos, LineYPos, mnuEditColor, True);
+				3704: Attribute := Edit_Bit(Attribute, 0, EditXPos, LineYPos, mnuNormColor);      { Allow remote sysop logon }
+				3705: Attribute := Edit_Bit(Attribute, 1, EditXPos, LineYPos, mnuNormColor);      { Allow anonymous logins }
+				3706: Attribute := Edit_Bit(Attribute, 2, EditXPos, LineYPos, mnuNormColor);      { Allow downloads }
+				3707: Attribute := Edit_Bit(Attribute, 3, EditXPos, LineYPos, mnuNormColor);      { Allow uploads }
+				3708: Attribute := Edit_Bit(Attribute, 4, EditXPos, LineYPos, mnuNormColor);      { Import descriptions }
+				3709: Attribute := Edit_Bit(Attribute, 5, EditXPos, LineYPos, mnuNormColor);      { Update USERON.BBS }
+				3723: Attribute := Edit_Bit(Attribute, 6, EditXPos, LineYPos, mnuNormColor);      { Block FXP transfers }
+				3724: Attribute := Edit_Bit(Attribute, 7, EditXPos, LineYPos, mnuNormColor);      { Allow mixed clients }
+				3710: EditLongInt(FirstNode, EditXPos, LineYPos, mnuEditColor, 6, True);
+				3711: GetString(EditXPos, LineYPos, mnuEditColor, TransferLog, [#32..#255], [#27, #13], 255, Menu^.EditLen, False, False, True, False, 0);
+				3712: GetString(EditXPos, LineYPos, mnuEditColor, IndexName00, [#32..#255], [#27, #13], 255, Menu^.EditLen, False, False, True, False, 0);
+				3713: GetString(EditXPos, LineYPos, mnuEditColor, IndexName02, [#32..#255], [#27, #13], 255, Menu^.EditLen, False, False, True, False, 0);
+				3714:
+					begin
+						TmpStr := IpToStr(PasvAddr);
+						GetString(EditXPos, LineYPos, mnuEditColor, TmpStr, [#46,#48..#57], [#27, #13], 15, 15, False, False, True, False, 0);
+						PasvAddr := StrToIp(TmpStr);
+					end;
+				3715:
+					begin
+						TmpStr := FStr(PasvPorts[0]) + '-' + FStr(PasvPorts[1]);
+						GetString(EditXPos, LineYPos, mnuEditColor, TmpStr, [#45,#48..#57], [#27, #13], 15, 15, False, False, True, False, 0);
+						PasvPorts[0] := FVal(ExtractWord(TmpStr, 1, ['-'], False, False));
+						PasvPorts[1] := FVal(ExtractWord(TmpStr, 2, ['-'], False, False));
+					end;
+				3716: EditWord(PasvOffset, EditXPos, LineYPos, mnuEditColor, True);
+				3717: GetString(EditXPos, LineYPos, mnuEditColor, DynIP, [#32..#255], [#27, #13], 255, Menu^.EditLen, False, False, True, False, 0);
+				3718: EditLongInt(GlobalTxRate, EditXPos, LineYPos, mnuEditColor, 6, True);
+				3719: EditLongInt(SessionTxRate, EditXPos, LineYPos, mnuEditColor, 6, True);
+				3720: EditLongInt(GlobalRxRate, EditXPos, LineYPos, mnuEditColor, 6, True);
+				3721: EditLongInt(SessionRxRate, EditXPos, LineYPos, mnuEditColor, 6, True);
+			end; { case, with }
+	until Choice <= 0;
+
+	Dispose(Menu, Done);
+	FtpServMenu := nil;
+end; { proc. DoFTPserver }
 
 (*-+-*-+-*-+-*-+-*-+-*-+-*-+-*-+-*-+-*-+-*-+-*-+-*-+-*-+-*-+-*-+-*-+-*-+-*-*)
 
@@ -1621,6 +1805,8 @@ begin
       Changes := True;
  If RecordsDifferent(LineCfg^.NewsServer^, OldNewsServer^, SizeOf(NewsServerRecord)) then
       Changes := True;
+ If RecordsDifferent(LineCfg^.FtpServer^, OldFtpServer^, SizeOf(FtpServerRecord)) then
+      Changes := True;
 
  If Changes then
   If DoSaveChanges('Save changes (Y/n) ? °', true, true) then
@@ -1668,6 +1854,15 @@ begin
         Config_F^.BlkWrite(LineCfg^.NewsServer^, SizeOf(NewsServerRecord));
         if Config_F^.IoResult > 0 then
           CantCreate(NewsServerFileName, TRUE);
+        Dispose(Config_F, Done);
+
+        New(Config_F, Init);
+        Config_F^.Assign(FtpServerFileName);
+        Config_F^.FileMode := ReadWriteMode + DenyAll;
+        Config_F^.Open(1);
+        Config_F^.BlkWrite(LineCfg^.FtpServer^, SizeOf(FtpServerRecord));
+        if Config_F^.IoResult > 0 then
+          CantCreate(FtpServerFileName, TRUE);
         Dispose(Config_F, Done);
      end; { if }
 
@@ -2352,6 +2547,7 @@ var Config_F    : pFileObj;
     Events_F    : pFileObj;
     Telnet_F    : pFileObj;
     NewsServer_F: pFileObj;
+    FtpServer_F : pFileObj;
     NumRead     : Word;
 begin
  {$IFDEF WITH_DEBUG}
@@ -2375,6 +2571,10 @@ begin
   DebugObj.DebugLog(logFastScrn, 'Fillcharing OldNewsServer^');
  {$ENDIF}
   FillChar(OldNewsServer^, SizeOf(OldNewsServer^), #00);
+ {$IFDEF WITH_DEBUG}
+  DebugObj.DebugLog(logFastScrn, 'Fillcharing OldFtpServer^');
+ {$ENDIF}
+  FillChar(OldFtpServer^, SizeOf(OldFtpServer^), #00);
 
 
   GlobalCfg^.RaConfig^.SysPath := ForceBack(GetSysEnv);
@@ -2481,6 +2681,24 @@ begin
   Dispose(NewsServer_F, Done);
 
 
+  New(FtpServer_F, Init);
+  FtpServer_F^.Assign(FtpServerFileName);
+  FtpServer_F^.FileMode := ReadWriteMode + DenyNone;
+  if NOT FtpServer_F^.Open(1) then
+   begin
+     FtpServer_F^.Create(1);
+     FtpServer_F^.BlkWrite(LineCfg^.FtpServer^, SizeOf(FtpServerRecord));
+
+      if FtpServer_F^.IoResult > 0 then
+        CantCreate(FtpServerFileName, FALSE);
+
+     FtpServer_F^.Seek(0);
+   end; { if }
+
+  FtpServer_F^.BlkRead(LineCfg^.FtpServer^, SizeOf(FtpServerRecord));
+  Dispose(FtpServer_F, Done);
+
+
   New(Events_F, Init);
   Events_F^.Assign(EventsFileName);
   Events_F^.FileMode := ReadWriteMode + DenyNone;
@@ -2507,6 +2725,7 @@ begin
   OldEvents^ := Events^;
   OldTelnet^ := LineCfg^.Telnet^;
   OldNewsServer^ := LineCfg^.NewsServer^;
+  OldFtpServer^ := LineCfg^.FtpServer^;
 
 
  {$IFDEF WITH_DEBUG}
@@ -2530,6 +2749,7 @@ begin
       lineCfg^.Modem := nil;
       LineCfg^.Telnet := nil;
       LineCfg^.Newsserver := nil;
+      LineCfg^.FtpServer := nil;
     end; { if }
 
   OldModem := nil;
@@ -2538,6 +2758,7 @@ begin
   OldEleConfig := nil;
   OldTelnet := nil;
   OldNewsServer := nil;
+  OldFtpServer := nil;
 
   PullMenu := nil;
   mnuFileMenu := nil;
@@ -2545,6 +2766,7 @@ begin
   mnuOptionsMenu := nil;
   mnuModemMenu := nil;
   mnuManagerMenu := nil;
+  mnuTcpIpMenu := nil;
 end; { proc. Initpointers }
 
 (*-+-*-+-*-+-*-+-*-+-*-+-*-+-*-+-*-+-*-+-*-+-*-+-*-+-*-+-*-+-*-+-*-+-*-+-*-*)
@@ -2598,6 +2820,14 @@ begin
  DebugObj.DebugLog(logFastScrn, '(MiscCfg): Getting memory for: Old newsServer');
  {$ENDIF}
   AllocMem(OldNewsServer, SizeOf(NewsServerRecord), 'OldNewsServerRecord', 'StartInitting');
+ {$IFDEF WITH_DEBUG}
+ DebugObj.DebugLog(logFastScrn, '(MiscCfg): Getting memory for: FtpServer');
+ {$ENDIF}
+  AllocMem(LineCfg^.FtpServer, SizeOf(FtpServerRecord), 'FtpServerRecord', 'StartInitting');
+ {$IFDEF WITH_DEBUG}
+ DebugObj.DebugLog(logFastScrn, '(MiscCfg): Getting memory for: Old FtpServer');
+ {$ENDIF}
+  AllocMem(OldFtpServer, SizeOf(FtpServerRecord), 'OldFtpServerRecord', 'StartInitting');
 
 
  {$IFDEF WITH_DEBUG}
@@ -2620,6 +2850,7 @@ begin
  {$ENDIF}
   LoadTelnetDefaults(LineCfg^.Telnet^);                 { Load Telnet.ELE defaults }
   LoadNewsServerDefaults(LineCfg^.NewsServer^);
+  LoadFtpServerDefaults(LineCfg^.FtpServer^);
 
 
  {$IFDEF WITH_DEBUG}
@@ -2651,6 +2882,8 @@ begin
     Error('Not enough memory to run this program...(mnuModemMenu)');
   if NOT AllocMem(mnuManagerMenu, SizeOf(mnuManagerMenu^), 'Pullmenu^', 'StartMenu') then
     Error('Not enough memory to run this program...(mnuManagerMenu)');
+  if NOT AllocMem(mnuTcpIpMenu, SizeOf(mnuTcpIpMenu^), 'Pullmenu^', 'StartMenu') then
+    Error('Not enough memory to run this program...(mnuTcpIpMenu)');
  {$IFDEF WITH_DEBUG}
   DebugObj.DebugLog(logFastScrn, 'Initialized memory heaps.');
  {$ENDIF}
@@ -2679,6 +2912,10 @@ begin
   DebugObj.DebugLog(logFastScrn, 'Fillcharing mnuManagerMenu');
  {$ENDIF}
   FillChar(mnuManagerMenu^, SizeOf(mnuManagerMenu^), #00);
+ {$IFDEF WITH_DEBUG}
+  DebugObj.DebugLog(logFastScrn, 'Fillcharing mnuTcpIpMenu');
+ {$ENDIF}
+  FillChar(mnuTcpIpMenu^, SizeOf(mnuTcpIpMenu^), #00);
 
  {$IFDEF WITH_DEBUG}
   DebugObj.DebugLog(logFastScrn, 'Variables initialized');
@@ -2690,13 +2927,14 @@ begin
   DebugObj.DebugLog(logFastScrn, 'Init submenus done.');
  {$ENDIF}
 
-  AddMenuItem(PullMenu^.MenuInf[1], ' File '  ,  'F', 01, '', 09, mnuFileMenu^);
-  AddMenuItem(PullMenu^.MenuInf[2], ' System ',  'D', 02, '', 21, mnuSystemMenu^);
-  AddMenuItem(PullMenu^.MenuInf[3], ' Options ', 'G', 03, '', 35, mnuOptionsMenu^);
-  AddMenuItem(PullMenu^.MenuInf[4], ' Modem '  , 'D', 04, '', 50, mnuModemMenu^);
-  AddMenuItem(PullMenu^.MenuInf[5], ' Manager ', 'D', 05, '', 63, mnuManagerMenu^);
+  AddMenuItem(PullMenu^.MenuInf[1], ' File '  ,  'F', 01, '', 03, mnuFileMenu^);
+  AddMenuItem(PullMenu^.MenuInf[2], ' System ',  'D', 02, '', 15, mnuSystemMenu^);
+  AddMenuItem(PullMenu^.MenuInf[3], ' Options ', 'G', 03, '', 29, mnuOptionsMenu^);
+  AddMenuItem(PullMenu^.MenuInf[4], ' Modem '  , 'D', 04, '', 44, mnuModemMenu^);
+  AddMenuItem(PullMenu^.MenuInf[5], ' Manager ', 'D', 05, '', 57, mnuManagerMenu^);
+  AddMenuItem(PullMenu^.MenuInf[6], ' TCP/IP ',  'T', 06, '', 71, mnuTcpIpMenu^);
 
-  PullMenu^.Items       := 05;
+  PullMenu^.Items       := 06;
   PullMenu^.HiLight     := 01;
   PullMenu^.Width       := 10;
   PullMenu^.X           := 05;
@@ -2777,6 +3015,7 @@ begin
       { Limits }          3400 : DoLimits;
       { Modem -> Telnet } 3500 : DoModemTelnet;
       { Newsserver }      3600 : DoNewsserver;
+      { FTP server }      3700 : DoFTPserver;
    end; { Case Choice }
 
    if Choice=00 then

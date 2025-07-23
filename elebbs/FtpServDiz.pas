@@ -3,7 +3,7 @@ unit FtpServDiz;
 **	Author : Scott Little (slittle@slittle.com)
 **	Package: EleBBS (EleServ/FtpServ)
 **	Purpose: Serialised file description importing subthread, called from EleServ/FtpServ
-**	Version: 20070820
+**	Version: 20080629d
 *)
 {$I COMPILER.INC}
 
@@ -38,6 +38,7 @@ type
 			JobQueue    : pDizImportJob;
 			QueueMutex  : TExclusiveObj;
 		public
+			NoExec      : Boolean; { XXXDEBUG: don't spawn EleFile }
 			constructor   Init;
 			destructor    Done;
 			function      Start(P: Pointer): LongInt;
@@ -72,6 +73,7 @@ begin
 	StopThread := False;
 	JobQueue := nil;
 	JobCount := -1;
+	NoExec   := False;
 	QueueMutex.Init;
 	QueueMutex.CreateExclusive;
 end;
@@ -194,8 +196,12 @@ begin
 			while (not StopThread) and (WorkJob <> nil) do
 				begin
 					RaLog('>', Format('[FTPSERV:ImportDiz] [Job #%d] Importing file description for "%s" in area #%d', [WorkJob^.JobID, WorkJob^.FileName, WorkJob^.AreaNum]));
-					if not Spawn(Format('%s %d "%s"', [GetEnv('COMSPEC') + ' /C ELEFILE.EXE DESCRIBE ', WorkJob^.AreaNum, WorkJob^.FileName])) then
-						RaLog('>', Format('[FTPSERV:ImportDiz] [Job #%d] Failed to run external program', [WorkJob^.JobID, WorkJob^.FileName, WorkJob^.AreaNum]));
+
+					if NoExec then
+						RaLog('>', Format('[FTPSERV:ImportDiz] [Job #%d] Not spawning EleFile - NoExec flag is set', [WorkJob^.JobID]))
+					else
+						if not Spawn(Format('%s %d "%s"', [GetEnv('COMSPEC') + ' /C ELEFILE.EXE DESCRIBE ', WorkJob^.AreaNum, WorkJob^.FileName])) then
+							RaLog('>', Format('[FTPSERV:ImportDiz] [Job #%d] Failed to run external program', [WorkJob^.JobID, WorkJob^.FileName, WorkJob^.AreaNum]));
 					Dispose(WorkJob);
 					WorkJob := RequestJob;
 				end;

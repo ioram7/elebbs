@@ -72,8 +72,10 @@ const MsgAreaNr     : Longint = 0;                          { Area to post to }
       Pop3Password  : String = '';
       Pop3HostName  : String = '';
       SmtpHostName  : String = '';
-      SmtpUserName  : String = '';    { User and pwd to SMTP-auth with (opt.) }
+{IORAM 2007-10-12}
+      SmtpUserName  : String = '';
       SmtpPassword  : String = '';
+{/IORAM}
 
 (*-+-*-+-*-+-*-+-*-+-*-+-*-+-*-+-*-+-*-+-*-+-*-+-*-+-*-+-*-+-*-+-*-+-*-+-*-*)
 
@@ -82,7 +84,9 @@ Const Pop3Port    : Longint = 110;
       MaxSent     : Longint = 20;
 
       TrashBounces: Boolean = false;
+{IORAM 2007-10-12}
       SmtpReplyTo : Boolean = false;
+{/IORAM}
       DeleteSema  : Boolean = false;
 
 (*-+-*-+-*-+-*-+-*-+-*-+-*-+-*-+-*-+-*-+-*-+-*-+-*-+-*-+-*-+-*-+-*-+-*-+-*-*)
@@ -167,6 +171,7 @@ begin
        TempCH := UpCase(Param[2]);
 
        If (NOT (Param[1] in ['/', '-'])) OR
+       {IORAM 2007-10-12 - Added Y and W options}
            ((Length(ParamStr(Counter)) > 2) AND NOT (TempCH in ['A', 'H', 'C', 'B', 'X', 'D', 'I', 'O', 'E', 'U', 'F', 'W', 'Y'])) then 
             begin
               InvOpt := ParamStr(Counter);
@@ -216,6 +221,7 @@ begin
                   Pop3Password := Copy(Pop3Username, Pos('@', Pop3Username) + 1, 255);
                   Pop3Username := Copy(Pop3Username, 1, Pos('@', Pop3Username) - 1);
                 end; { POP3 User/Pass }
+					{IORAM 2007-10-12}
           'W' : begin
                   SmtpUserName := Copy(ParamStr(Counter), 3, 255);
 
@@ -225,6 +231,7 @@ begin
           'Y' : begin
                   SmtpReplyTo := true;
                 end; { Reply-To: }
+          {/IORAM}
                 
           'I' : begin
                   SmtpHostname := Copy(ParamStr(Counter), 3, 255);
@@ -260,6 +267,7 @@ begin
           Writeln(#32, SystemMsgPrefix, 'Invalid option : ', InvOpt);
         end; { if }
 
+      {IORAM 2007-10-12 - Added -Y and -W<name>@<pword> options}
       WriteLn(#32, SystemMsgPrefix, 'Command-line parameters:');
       WriteLn;
       WriteLn(Dup(#32, 09), '-R               Collect new email from the server');
@@ -443,7 +451,6 @@ begin
   DoAbort := FALSE;
 
   {-- now extract the fieldname -----------------------------------------------}
-  Fieldname := 'To:';
   UserName := ExtractToName(MsgText, true, FieldName);
   MailAddr := ExtractToName(MsgText, false, FieldName);
 
@@ -529,6 +536,7 @@ function TryLeaveOnServer(var MsgText : MessageTextType): Boolean;
 var AliasF    : pFileObj;
     TempStr   : String;
     ToName    : String;
+    AliasName : String;
     Usernames : Array[0..1] of String;
     CmdName   : String;
 begin
@@ -556,7 +564,7 @@ begin
         begin
           CmdName := ExtractWord(TempStr, 1, defExtractWord, TRUE, false);
           ToName := ExtractWord(TempStr, 2, defExtractWord, TRUE, false);
-          { AliasName := ExtractWord(TempStr, 3, defExtractWord, TRUE, false); }
+          AliasName := ExtractWord(TempStr, 3, defExtractWord, TRUE, false);
 
           if SupCase(CmdName) = 'LEAVE' then
             begin
@@ -585,6 +593,7 @@ var Counter   : Longint;
     NrOctets  : Longint;
     MsgText   : ^MessageTextType;
     StrLines  : pStringArrayObj;
+    ErrorStr  : String;
     Username  : String;
     SaveName  : String;
     DoPost    : Boolean;
@@ -731,25 +740,41 @@ end; { proc. CollectNewMail }
 (*-+-*-+-*-+-*-+-*-+-*-+-*-+-*-+-*-+-*-+-*-+-*-+-*-+-*-+-*-+-*-+-*-+-*-+-*-*)
 
 function PostMailArticle(var Article: NewsArticleRecord; var MsgText: MessageTextType; var SendError: Longint): Boolean;
-var TempStr   : String;
-    FromStr   : String;
+var TempStr: String;
+{IORAM 2007-10-12}
+    FromStr: String;
     HeloAnswer: Boolean;
+    UseAuth: Boolean;
+{/IORAM}
 begin
   PostMailArticle := FALSE;
+  UseAuth := false;
   SendError := 0;
 
-	HeloAnswer := SmtpClient.Helo(Copy(GlobEmailHostname, 1, Length(GlobEmailHostname)), (SmtpUserName <> ''));
+	{IORAM 2007-10-13}
+	if SmtpUsername = '' 
+	then
+			HeloAnswer := SmtpClient.Helo(Copy(GlobEmailHostname, 1, Length(GlobEmailHostname)))
+	else
+		begin
+			HeloAnswer := SmtpClient.Ehlo(Copy(GlobEmailHostname, 1, Length(GlobEmailHostname)));
+			UseAuth := true;
+		end;
+
   if HeloAnswer then
+	{/IORAM}
     begin
       {-- Get the from name and strip the text between quotes ---------------}
       SendError := 1;
-      if (SmtpUserName <> '') then
+			{IORAM 2007-10-12}      
+      if UseAuth then
       	if not SmtpClient.Auth(SmtpUserName, SmtpPassword)
       		then EXIT;
 
       FromStr := GetRawEmail(GetFieldLine('From:', MsgText));
       
       if SmtpClient.Mail(FromStr) then
+			{/IORAM}
         begin
            SendError := 2;
            TempStr := GetFieldLine('To:', MsgText);       { Get to: address }
@@ -759,17 +784,14 @@ begin
            {$IFDEF WITH_DEBUG}
              DebugObj.DebugLog(logTcpIp, 'GetFieldLine(To:) = ' + GetFieldLine('To:', MsgText));
              DebugObj.DebugLog(logTcpIp, 'GetRawEmail = ' + GetRawEmail(GetFieldLine('To:', MsgText)));
-           {$ENDIF}
+           {$ENDIF}        
 
            if SmtpClient.Rcpt(TempStr) then
              begin
-               { Now clear out the FromStr if we should not send an reply to }
-               if (NOT SmtpReplyTo) then 
-	               FromStr := '';
-	               
-	             { and actually send the message }
                SendError := 3;
-               PostMailArticle := SmtpClient.Data(MsgText, FromStr);
+					     {IORAM 2007-10-12}
+               PostMailArticle := SmtpClient.Data(MsgText,SmtpReplyTo,FromStr);
+               {/IORAM}
              end; { 'rcpt' }
 
         end; { 'mail from' }
@@ -789,12 +811,15 @@ var Article_F    : pFileObj;
     ArticleHdrPos: Longint;
     SavePos      : Longint;
     TmpAttr      : Byte;
+
+    LastName     : String;
 begin
   {-- Initialize all sort of variables --------------------------------------}
   if NOT AllocMem(MsgText, SizeOf(MessageTextType), 'MessageTextType', 'CollectNewArticles') then
     FatalError('Not enough memory to setup buffer', -1);
   Posted := 00;
   CurArticle := 0;
+  Lastname := '';
 
   {-- Log some info ---------------------------------------------------------}
   RaLog('>', 'Posting articles to your mailserver');
@@ -856,6 +881,7 @@ begin
        Article_F^.Seek(SavePos);
 
        {-- Update the statistics --------------------------------------------}
+       Lastname := Article.GroupName;
        Inc(Posted);
      end; { while }
 
@@ -874,7 +900,9 @@ end; { proc. SendMessages }
 (*-+-*-+-*-+-*-+-*-+-*-+-*-+-*-+-*-+-*-+-*-+-*-+-*-+-*-+-*-+-*-+-*-+-*-+-*-*)
 
 procedure ConnectPop3(const pop3Username, pop3Password: String);
-var Temp      : Boolean;
+var NrMsgs,
+    NrBytes   : Longint;
+    Temp      : Boolean;
     ErrorStr  : String;
 begin
   {-- Initialize POP3 client ------------------------------------------------}
@@ -919,7 +947,9 @@ end; { proc. ConnectPop3 }
 (*-+-*-+-*-+-*-+-*-+-*-+-*-+-*-+-*-+-*-+-*-+-*-+-*-+-*-+-*-+-*-+-*-+-*-+-*-*)
 
 procedure ConnectSmtp;
-var Temp      : Boolean;
+var NrMsgs,
+    NrBytes   : Longint;
+    Temp      : Boolean;
     ErrorStr  : String;
 begin
   {-- Initialize SMTP client ------------------------------------------------}

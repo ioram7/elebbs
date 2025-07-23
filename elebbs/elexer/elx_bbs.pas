@@ -362,8 +362,9 @@ var TmpStr,
     {$ELSE}
     TmpStr8   : AnsiString;
     {$ENDIF}
-    {$IFDEF TCPIP}
-     TmpStrA   : AnsiString;
+
+    {$IFNDEF MSDOS}
+    TmpStrA   : AnsiString;
     {$ENDIF}
 
     ShortTmp,
@@ -1723,9 +1724,15 @@ begin
          {-- RemoveWordNr -----------------------------------------------------}
          78 : begin
                 {-- First get the first string --------------------------------}
+                {$IFDEF MSDOS}
+                if CallTypes[1] = 'c' then
+                  TmpStr := Copy(TmpStack[0].C, 1, 1)
+                    else TmpStr := StrGetString(elx_Globals, TmpStack[0].S, 1, -1);
+                {$ELSE}
                 if CallTypes[1] = 'c' then
                   TmpStrA := Copy(TmpStack[0].C, 1, 1)
                     else TmpStrA := StrGetString(elx_Globals, TmpStack[0].S, 1, -1);
+                {$ENDIF}
 
                 {-- now get the char delimitting set --------------------------}
                 if CallTypes[3] = 'c' then

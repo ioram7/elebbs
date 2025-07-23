@@ -86,13 +86,92 @@ type
                   X,Y     : Byte;
                 end; { MenuRecord }
 
+
+(* core menu logic ========================================================== *)
+type
+	ItemPtr = ^ItemRec;
+	ItemRec = record
+			data  : pointer;
+			prev,
+			next  : ItemPtr;
+		end;
+
+	MenuObj = object
+			HeadPtr,            { first item in linked list }
+			TailPtr,            { last item in linked list }
+			MenuPtr : ItemPtr;  { currently active item }
+			MenuPos,            { position of MenuPtr in linked list; 0 based }
+			MenuLen : LongInt;  { number of nodes in linked list }
+			PagePos,            { position of MenuPtr in visible menu; 0 based }
+			PageLen : Byte;     { number of items in visible menu }
+
+			constructor Init;
+			destructor	Done;
+
+			function  AddItem(data: pointer): ItemPtr; virtual;
+			procedure ShowItem(isActive: Boolean); virtual;
+			procedure ShowMenu; virtual;
+			procedure eEOF; virtual;
+			procedure ePrev; virtual;
+			procedure eNext; virtual;
+			procedure ePgUp; virtual;
+			procedure ePgDn; virtual;
+			procedure eHome; virtual;
+			procedure eEnd; virtual;
+		end; { MenuObj }
+(* end core menu logic ====================================================== *)
+
+(* vertical menu layer ====================================================== *)
+type
+	VxItemPtr = ^VxItemRec;
+	VxItemRec = record
+			ID     : LongInt;
+			Title,               { menu item name  }
+			Desc   : String;     { status bar help }
+			HotKey : Char;       { XXXTODO: not implemented }
+		end;
+
+	VxMenuPtr = ^VxMenuObj;
+	VxMenuObj = object(MenuObj)
+			Title      : String;
+			MenuX1,
+			MenuY1,
+			MenuX2,
+			MenuY2,
+			PageX1,
+			PageY1,
+			ItemLen,
+			EditLen,
+			EditPad,
+			BoxColour  : Byte;
+			cbkGetValue: function: String;
+			constructor  Init;
+			destructor   Done;
+			function     NewData(ID: LongInt;  ItemTitle, Desc: String;  HotKey: Char): VxItemPtr; virtual;
+			procedure    ShowItem(isActive: Boolean); virtual;
+			procedure    ShowMenu; virtual;
+			procedure    ShowDesc; virtual;
+			procedure    ShowMore; virtual;
+			function     GetSelection: LongInt; virtual;
+			function     GetValue: String; virtual;
+			procedure    setWindowStyle(Style: Byte;  _Title: String;  _MenuX1, _MenuY1, _ItemLen, _EditLen, _PageLen: Byte); virtual;
+			procedure    ShowWindow(Clear, Enable: Boolean);
+		private
+			function     MoreStr: String; virtual;
+			function     TruncStr(str: String;  len: Byte): String; virtual;
+		end; { VxMenuObj }
+(* end vertical menu layer ================================================== *)
+
+{$I KEYS.INC}
+
 var PullMenu        : ^MenuRecord;
 
     mnuFileMenu,
     mnuSystemMenu,
     mnuOptionsMenu,
     mnuModemMenu,
-    mnuManagerMenu  : ^PullRecord;
+    mnuManagerMenu,
+    mnuTcpIpMenu   : ^PullRecord;
 
 procedure EnDisAbleMenu(pull: Pullrecord; Enable: Boolean);
 procedure ShowMenuItems(Pull: PullRecord);
@@ -111,7 +190,7 @@ function  DoPullMenu(Var Pull:PullRecord; Var CH: Char; Remove, TopBar: Boolean)
  IMPLEMENTATION
 (*-+-*-+-*-+-*-+-*-+-*-+-*-+-*-+-*-+-*-+-*-+-*-+-*-+-*-+-*-+-*-+-*-+-*-+-*-*)
 
-uses GenCfg, ScrnU, StrEdit, ObjDec
+uses GenCfg, ScrnU, StrEdit, ObjDec, Colors, StUtils
        {$IFDEF WITH_DEBUG}
          ,Debug_U
        {$ENDIF};
@@ -416,5 +495,562 @@ begin
 end; { func. TopBar }
 
 (*-+-*-+-*-+-*-+-*-+-*-+-*-+-*-+-*-+-*-+-*-+-*-+-*-+-*-+-*-+-*-+-*-+-*-+-*-*)
+
+
+(* core menu logic ========================================================== *)
+
+constructor MenuObj.Init;
+begin
+	HeadPtr := nil;
+	MenuPtr := nil;
+	MenuPos := 0;
+	PagePos := 0;
+	PageLen := 0;
+	MenuLen := 0;
+end; { constructor MenuObj.Init }
+
+(* -------------------------------------------------------------------------- *)
+
+destructor MenuObj.Done;
+begin
+	while HeadPtr <> nil do
+		begin
+			MenuPtr := HeadPtr^.next;
+			Dispose(HeadPtr);
+			HeadPtr := MenuPtr;
+		end;
+end; { destructor MenuObj.Done }
+
+(* -------------------------------------------------------------------------- *)
+
+function  MenuObj.AddItem(data: pointer): ItemPtr;
+begin
+	if HeadPtr = nil then
+		begin
+			New(HeadPtr);
+			HeadPtr^.prev := nil;
+			HeadPtr^.next := nil;
+			TailPtr := HeadPtr;
+			MenuPtr := HeadPtr;
+			PagePos := 0;
+			MenuLen := 1;
+		end
+	else
+		begin
+			New(TailPtr^.next);
+			TailPtr^.next^.prev := TailPtr;
+			TailPtr := TailPtr^.next;
+			TailPtr^.next := nil;
+			inc(MenuLen);
+		end;
+
+	TailPtr^.data := data;
+	AddItem := TailPtr;
+end; { func. MenuObj.AddItem }
+
+(* -------------------------------------------------------------------------- *)
+
+procedure MenuObj.ShowItem(isActive: Boolean);
+{
+	Draw the current menu item (MenuPtr) at the current offset (PagePos)
+	isActive: true if the menu item is to be painted as lit (the lightbar)
+}
+begin
+end; { proc. MenuObj.ShowItem }
+
+(* -------------------------------------------------------------------------- *)
+
+procedure MenuObj.ShowMenu;
+{
+	Display entire visible menu from scratch
+}
+var
+	SaveMenuPtr: ItemPtr;
+	SaveMenuPos: LongInt;
+	SavePagePos: Byte;
+
+begin
+	SaveMenuPtr := MenuPtr;
+	SaveMenuPos := MenuPos;
+	SavePagePos := PagePos;
+
+	{ seek to first visible item }
+	while (MenuPtr <> nil) and (MenuPtr^.prev <> nil) and (PagePos > 0) do
+		begin
+			MenuPtr := MenuPtr^.prev;
+			dec(MenuPos);
+			dec(PagePos);
+		end;
+
+	{ iterate through visible items }
+	while (MenuPtr <> nil) and (PagePos < PageLen) do
+		begin
+			ShowItem(MenuPtr=SaveMenuPtr);
+			MenuPtr := MenuPtr^.next;
+			inc(MenuPos);
+			inc(PagePos);
+		end;
+
+	MenuPtr := SaveMenuPtr;
+	MenuPos := SaveMenuPos;
+	PagePos := SavePagePos;
+end; { proc. MenuObj.ShowMenu }
+
+(* -------------------------------------------------------------------------- *)
+
+procedure MenuObj.eEOF;
+{
+	Called when user attempts to move beyond menu bounds
+}
+begin
+	{sysbeepex(500, 50);}
+end; { proc. MenuObj.eEOF }
+
+(* -------------------------------------------------------------------------- *)
+
+procedure MenuObj.ePrev;
+begin
+	if (MenuPtr = nil) or (MenuPtr^.prev = nil) then
+		eEOF
+	else
+		if PagePos = 0 then
+			begin
+				MenuPtr := MenuPtr^.prev;
+				dec(MenuPos);
+				ShowMenu;
+			end
+		else
+			begin
+				ShowItem(False);
+				MenuPtr := MenuPtr^.prev;
+				dec(PagePos);
+				dec(MenuPos);
+				ShowItem(True);
+			end;
+end; { proc. MenuObj.ePrev }
+
+(* -------------------------------------------------------------------------- *)
+
+procedure MenuObj.eNext;
+begin
+	if (MenuPtr = nil) or (MenuPtr^.next = nil) then
+		eEOF
+	else
+		if PagePos >= PageLen-1 then
+			begin
+				MenuPtr := MenuPtr^.next;
+				inc(MenuPos);
+				PagePos := Pred(PageLen);
+				ShowMenu;
+			end
+		else
+			begin
+				ShowItem(False);
+				MenuPtr := MenuPtr^.next;
+				inc(PagePos);
+				inc(MenuPos);
+				ShowItem(True);
+			end;
+end; { MenuObj.eNext }
+
+(* -------------------------------------------------------------------------- *)
+
+procedure MenuObj.ePgUp;
+{
+	Page Up:
+		1) advance lightbar to top of page & scroll page by one line, or
+		2) scroll page one one pagelen (if already at top of page)
+}
+var
+	Counter: LongInt;
+
+begin
+	if (MenuPtr = nil) or (MenuPtr^.prev = nil) then
+		eEOF
+	else
+		if (MenuPos - PagePos) <= 0 then
+			begin
+				ShowItem(False);
+				MenuPtr := HeadPtr;
+				MenuPos := 0;
+				PagePos := 0;
+				ShowItem(True);
+			end
+		else
+			begin
+				if PagePos > 0 then
+					Counter := PagePos+1
+				else
+					Counter := MenuPos - PagePos;
+
+				if Counter > PageLen then
+					Counter := PageLen;
+
+				while Counter > 0 do
+					begin
+						MenuPtr := MenuPtr^.prev;
+						dec(Counter);
+						dec(MenuPos);
+					end;
+
+				PagePos := 0;
+				ShowMenu;
+			end;
+end; { proc. MenuObj.ePgUp }
+
+(* -------------------------------------------------------------------------- *)
+
+procedure MenuObj.ePgDn;
+{
+	Page Down:
+		1) advance lightbar to end of page & scroll page by one line, or
+		2) scroll page one one pagelen (if already at end of page)
+}
+var
+	Counter: LongInt;
+
+begin
+	if (MenuPtr = nil) or (MenuPtr^.next = nil) then
+		eEOF
+	else
+		if MenuPos + (PageLen-PagePos) >= MenuLen then
+			begin
+				ShowItem(False);
+
+				while (MenuPtr <> nil) and (MenuPtr^.next <> nil) do
+					begin
+						MenuPtr := MenuPtr^.next;
+						inc(MenuPos);
+					end;
+
+				PagePos := Pred(PageLen);
+				ShowItem(True);
+			end
+		else
+			begin
+				if PagePos < PageLen-1 then
+					Counter := PageLen - PagePos
+				else
+					Counter := MenuLen - (MenuPos-PagePos+PageLen);
+
+				if Counter > PageLen then
+					Counter := PageLen;
+
+				while (Counter > 0) and (MenuPtr <> nil) and (MenuPtr^.next <> nil) do
+					begin
+						MenuPtr := MenuPtr^.next;
+						dec(Counter);
+						inc(MenuPos);
+					end;
+
+				PagePos := Pred(PageLen);
+				ShowMenu;
+			end;
+end; { proc. MenuObj.ePgDn }
+
+(* -------------------------------------------------------------------------- *)
+
+procedure MenuObj.eHome;
+begin
+	if (MenuPtr = nil) or (MenuPtr^.prev = nil) then
+		eEOF
+	else
+		if MenuPos - PagePos > 0 then
+			begin
+				MenuPtr := HeadPtr;
+				MenuPos := 0;
+				PagePos := 0;
+				ShowMenu;
+			end
+		else
+			begin
+				ShowItem(False);
+				MenuPtr := HeadPtr;
+				MenuPos := 0;
+				PagePos := 0;
+				ShowItem(True);
+			end;
+end; { proc. MenuObj.eHome }
+
+(* -------------------------------------------------------------------------- *)
+
+procedure MenuObj.eEnd;
+begin
+	if (MenuPtr = nil) or (MenuPtr^.next = nil) then
+		eEOF
+	else
+		if MenuPos+PageLen-PagePos < MenuLen then
+			begin
+				MenuPtr := TailPtr;
+				MenuPos := Pred(MenuLen);
+				PagePos := Pred(PageLen);
+				ShowMenu;
+			end
+		else
+			begin
+				ShowItem(False);
+				MenuPtr := TailPtr;
+				MenuPos := Pred(MenuLen);
+				PagePos := Pred(PageLen);
+				ShowItem(True);
+			end;
+end; { proc. MenuObj.eEnd }
+
+(* end core menu logic ====================================================== *)
+
+
+(* vertical menu layer ====================================================== *)
+
+constructor VxMenuObj.Init;
+begin
+	MenuObj.Init;
+	BoxColour := mnuBoxColor;
+	setWindowStyle(1, ' Title ', 24, 8, 10, 10, 20);
+	cbkGetValue := nil;
+end; { constructor VxMenuObj.Init }
+
+(* -------------------------------------------------------------------------- *)
+
+destructor VxMenuObj.Done;
+begin
+	MenuObj.Done;
+end; { destructor VxMenuObj.Done }
+
+(* -------------------------------------------------------------------------- *)
+
+function	VxMenuObj.NewData(ID: LongInt;  ItemTitle, Desc: String;  HotKey: Char): VxItemPtr;
+var
+	Item: VxItemPtr;
+
+begin
+	New(Item);
+	Item^.ID     := ID;
+	Item^.Title  := ItemTitle;
+	Item^.Desc   := Desc;
+	Item^.HotKey := HotKey;
+	NewData := Item;
+end; { func. VxMenuObj.NewData }
+
+(* -------------------------------------------------------------------------- *)
+
+procedure VxMenuObj.ShowItem(isActive: Boolean);
+var
+	SaveDirect: Boolean;
+
+begin
+	SaveDirect := DirectScrnUpdate;
+	DirectScrnUpdate := False;
+
+	PartClear(PageX1, PageY1+PagePos, PageX1+ItemLen+EditPad+EditLen, PageY1+PagePos, mnuNormColor, #32);
+
+	if (MenuPtr = nil) or (MenuPtr^.Data = nil) then
+		exit;
+
+	if isActive then
+		WriteAt(PageX1, PageY1+PagePos, mnuPullHiColor, TruncStr(VxItemRec(MenuPtr^.Data^).Title, ItemLen))
+	else
+		WriteAt(PageX1, PageY1+PagePos, mnuMsgColor, TruncStr(VxItemRec(MenuPtr^.Data^).Title, ItemLen));
+
+	if EditLen > 0 then
+		WriteAt(PageX1+ItemLen+EditPad, PageY1+PagePos, mnuNormColor, TruncStr(GetValue, EditLen));
+
+	DirectScrnUpdate := SaveDirect;
+	UpdateScreenBuffer(DirectScrnUpdate);
+end; { proc. VxMenuObj.ShowItem }
+
+(* -------------------------------------------------------------------------- *)
+
+procedure VxMenuObj.ShowMenu;
+var
+	SaveDirect: Boolean;
+
+begin
+	SaveDirect := DirectScrnUpdate;
+	DirectScrnUpdate := False;
+
+	MenuObj.ShowMenu;
+
+	DirectScrnUpdate := SaveDirect;
+	UpdateScreenBuffer(DirectScrnUpdate);
+end; { proc. VxMenuObj.ShowMenu }
+
+(* -------------------------------------------------------------------------- *)
+
+procedure VxMenuObj.ShowDesc;
+var
+	SaveDirect: Boolean;
+
+begin
+	SaveDirect := DirectScrnUpdate;
+	DirectScrnUpdate := False;
+
+	PartClear(mnuMsgXPos, mnuMsgYPos, mnuScrnWidth, mnuMsgYpos, mnuMsgColor, #32);
+	WriteAT(mnuMsgXPos, mnuMsgYpos, mnuMsgColor, VxItemRec(MenuPtr^.Data^).Desc);
+
+	DirectScrnUpdate := SaveDirect;
+	UpdateScreenBuffer(DirectScrnUpdate);
+end; { proc. VxMenuObj.ShowDesc }
+
+(* -------------------------------------------------------------------------- *)
+
+procedure VxMenuObj.ShowMore;
+var
+	SaveDirect: Boolean;
+
+begin
+	SaveDirect := DirectScrnUpdate;
+	DirectScrnUpdate := False;
+
+	WriteAt(MenuX2-length(MoreStr)-1, MenuY2, BoxColour, MoreStr);
+
+	DirectScrnUpdate := SaveDirect;
+	UpdateScreenBuffer(DirectScrnUpdate);
+end; { proc. VxMenuObj.ShowMore }
+
+(* -------------------------------------------------------------------------- *)
+
+function VxMenuObj.GetSelection: LongInt;
+var
+	Ch: Char;
+	SaveDirect: Boolean;
+
+begin
+	repeat
+		Ch := ReadKey;
+		if Ch = #00 then
+			begin
+				Ch := ReadKey;
+				SaveDirect := DirectScrnUpdate;
+				DirectScrnUpdate := false;
+
+				case Ch of
+					kUpArrow:
+						ePrev;
+					kDownArrow:
+						eNext;
+					kLeftArrow, kPgUp:
+						ePgUp;
+					kRightArrow, kPgDown:
+						ePgDn;
+					kHome:
+						eHome;
+					kEnd:
+						eEnd;
+					{else
+						GotoXy(1,1); writeln(ord(ch))}
+				end; { case }
+
+				ShowMore;
+				ShowDesc;
+
+				DirectScrnUpdate := SaveDirect;
+				UpdateScreenBuffer(True); { force screen update, finally. }
+			end; { Ch = #00 }
+	until (Ch=#13) or (Ch=#27);
+
+	if (MenuPtr <> nil) and (Ch<>#27) then
+		GetSelection := VxItemRec(MenuPtr^.Data^).ID
+	else
+		GetSelection := 0;
+end; { func. VxMenuObj.GetSelection }
+
+(* -------------------------------------------------------------------------- *)
+
+function VxMenuObj.GetValue: String;
+begin
+	if @cbkGetValue <> nil then
+		begin
+			GetValue := cbkGetValue;
+			exit;
+		end;
+	GetValue := '';
+end; { func. VxMenuObj.GetValue }
+
+(* -------------------------------------------------------------------------- *)
+
+function VxMenuObj.MoreStr: String;
+var
+	TempStr: String;
+
+begin
+	TempStr := '    for more ';
+
+	if (MenuPos-PagePos > 0) then
+		TempStr[2] := mnuUpArrow;
+
+	if (MenuPos+(PageLen-PagePos) < MenuLen) then
+		TempStr[3] := mnuDnArrow;
+
+	MoreStr := TempStr;
+end; { func. VxMenuObj.MoreStr }
+
+(* -------------------------------------------------------------------------- *)
+
+function  VxMenuObj.TruncStr(str: String;  len: Byte): String;
+begin
+   if length(str) > len then
+      TruncStr := copy(str, 1, len-1) + #175
+   else
+      TruncStr := PadRight(str, ' ', len);
+end; { func. VxMenuObj.TruncStr }
+
+(* -------------------------------------------------------------------------- *)
+
+procedure VxMenuObj.setWindowStyle(Style: Byte;  _Title: String;  _MenuX1, _MenuY1, _ItemLen, _EditLen, _PageLen: Byte);
+{
+	Configure window and page offsets, lengths, etc. according to Style:
+		0:	no internal padding
+		1: one line/column all around
+}
+begin
+	case Style of
+		1:
+			begin
+				Title   := _Title;
+				ItemLen := _ItemLen;
+				EditLen := _EditLen;
+				EditPad := 1;
+				PageLen := _PageLen;
+				MenuX1  := _MenuX1;
+				MenuY1  := _MenuY1;
+				PageX1  := MenuX1+2;
+				PageY1  := MenuY1+2;
+				MenuX2  := PageX1+ItemLen+EditPad+EditLen+1;
+				MenuY2  := MenuY1+PageLen+3
+			end;
+		else
+			begin
+				{ XXXTODO: not implemented }
+				halt(0);
+			end;
+	end; { case Style }
+end; { proc. VxMenuObj.setWindowStyle }
+
+(* -------------------------------------------------------------------------- *)
+
+procedure VxMenuObj.ShowWindow(Clear, Enable: Boolean);
+var
+	SaveDirect: Boolean;
+
+begin
+	SaveDirect := DirectScrnUpdate;
+	DirectScrnUpdate := False;
+
+	if Enable then
+		BoxColour := mnuBoxColor
+	else
+		BoxColour := mnuDisabled;
+
+	ShadFillBox(MenuX1, MenuY1, MenuX2, MenuY2, BoxColour, mnuStyle, Clear);
+	WriteAT((MenuX2-length(Title)), MenuY1, mnuTitleColor, Title);
+	ShowMore;
+	ShowDesc;
+
+	DirectScrnUpdate := SaveDirect;
+	UpdateScreenBuffer(DirectScrnUpdate);
+end; { proc. VxMenuObj.ShowWindow }
+
+(* end vertical menu layer ================================================== *)
+
 
 end. { unit MENUSYS }

@@ -174,6 +174,10 @@
    {$ENDIF}
  {$ENDIF}
 
+ {$IFDEF MSDOS}
+   {$Y+}                              { Turn on symbol information (units only) }
+ {$ENDIF}
+
  {$IFNDEF MSDOS}
    {$UNDEF OVERLAY}
  {$ELSE}
@@ -188,7 +192,6 @@
  {$Q-}                                           { Turn off overflow checking }
  {$R+}                                               { Turn on range checking }
  {$S+}                                               { Turn on stack checking }
- {$Y+}                              { Turn on symbol information (units only) }
  {$T-}                                            { Generate untyped pointers }
  {$V-}                                    { Turn off strict variable checking }
  {$X+}                                          { Turn on the extended syntax }
@@ -229,7 +232,6 @@
 
  {$IFDEF FPC}
    {$H-}
-   {$Y-}                                              { else causes 200306063 }
    {$LongStrings-}
 
 	{$IFDEF VER1_9_5}
@@ -263,4 +265,22 @@
   G+ 80286 instructions   Q- Overflow checking    Y+ Symbol reference info
  .I+ I/O error checking   R- Range checking       Z- Word-sized enums
   K+ Smart callbacks      S+ Stack checking
+*)
+
+(*
+  Borland Pascal compiler directives ignored by Virtual Pascal v2.1.243
+  E  Emulation
+  F  Force FAR Calls
+  G  Generate 286 Instructions
+  K  Smart Callbacks
+  N  Numeric Coprocessor
+  O  Overlay Code Generation
+  Y  Symbol Reference Information
+
+  Borland Pascal parameter directives ignored by Virtual Pascal v2.1.243
+  C Attribute   Code Segment Attribute
+  D Text        Description
+  G UnitName    Group Unit Segments
+  O UnitName    Overlay Unit Name
+  S SegSize     Segment Size Preference
 *)

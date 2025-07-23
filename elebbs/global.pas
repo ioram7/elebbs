@@ -85,27 +85,27 @@ Const
 {$IFDEF FPC}
    {$IFDEF GO32V2}
       FullProgName   = 'EleBBS/386';
-      PidName        : String = 'EleBBS/386 v0.11.b1';
-      EleIrcName     = 'EleIRC/386 v0.11.b1';
-      VersionID      : String = '0.11.b1';
+      PidName        : String = 'EleBBS/386 v20130208';
+      EleIrcName     = 'EleIRC/386 v20130208';
+      VersionID      : String = '20130208';
       PlatformIDStr  = '386';
    {$ENDIF}
 
    {$IFDEF ELEUNIX}
       {$IFDEF FreeBSD}
         FullProgName   = 'EleBBS/FreeBSD';
-        PidName        : String = 'EleBBS/FreeBSD v0.11.b1';
-        EleIrcName     = 'EleIRC/FreeBSD v0.11.b1';
-        VersionID      : String = '0.11.b1';
+        PidName        : String = 'EleBBS/FreeBSD v20130208';
+        EleIrcName     = 'EleIRC/FreeBSD v20130208';
+        VersionID      : String = '20130208';
         PlatformIDStr  = 'FreeBSD';
       {$ENDIF}
 
       {$IFDEF LINUX}
        {$IFNDEF FreeBSD}
         FullProgName   = 'EleBBS/Linux';
-        PidName        : String = 'EleBBS/Linux v0.11.b1';
-        EleIrcName     = 'EleIRC/Linux v0.11.b1';
-        VersionID      : String = '0.11.b1';
+        PidName        : String = 'EleBBS/Linux v20130208';
+        EleIrcName     = 'EleIRC/Linux v20130208';
+        VersionID      : String = '20130208';
         PlatformIDStr  = 'Linux';
        {$ENDIF}
       {$ENDIF}
@@ -114,18 +114,18 @@ Const
 
 {$IFDEF OS2}
       FullProgName   = 'EleBBS/OS2';
-      PidName        : String = 'EleBBS/OS2 v0.11.b1';
-      EleIrcName     = 'EleIRC/OS2 v0.11.b1';
-      VersionID      : String = '0.11.b1';
+      PidName        : String = 'EleBBS/OS2 v20130208';
+      EleIrcName     = 'EleIRC/OS2 v20130208';
+      VersionID      : String = '20130208';
       PlatformIDStr  = 'OS2';
 {$ENDIF}
 
 {$IFDEF MSDOS}
  {$IFNDEF FPK}
       FullProgName   = 'EleBBS/DOS';
-      PidName        : String = 'EleBBS/DOS v0.11.b1';
-      EleIrcName     = 'EleIRC/DOS v0.11.b1';
-      VersionID      : String = '0.11.b1';
+      PidName        : String = 'EleBBS/DOS v20130208';
+      EleIrcName     = 'EleIRC/DOS v20130208';
+      VersionID      : String = '20130208';
       PlatformIDStr  = 'DOS';
  {$ENDIF}
 {$ENDIF}
@@ -133,15 +133,15 @@ Const
 {$IFDEF WIN32}
   {$IFDEF WINGUI}
       FullProgName   = 'EleBBS/GUI';
-      PidName        : String = 'EleBBS/GUI v0.11.b1';
-      EleIrcName     = 'EleIRC/GUI v0.11.b1';
-      VersionID      : String = '0.11.b1';                     { Current version }
+      PidName        : String = 'EleBBS/GUI v20130208';
+      EleIrcName     = 'EleIRC/GUI v20130208';
+      VersionID      : String = '20130208';                     { Current version }
       PlatformIDStr  = 'GUI';
   {$ELSE}
       FullProgName   = 'EleBBS/W32';
-      EleIrcName     = 'EleIRC/W32 v0.11.b1';
-      PidName        : String = 'EleBBS/W32 v0.11.b1';
-      VersionID      : String = '0.11.b1';                     { Current version }
+      EleIrcName     = 'EleIRC/W32 v20130208';
+      PidName        : String = 'EleBBS/W32 v20130208';
+      VersionID      : String = '20130208';                     { Current version }
       PlatformIDStr  = 'W32';
   {$ENDIF}
 {$ENDIF}
@@ -343,6 +343,7 @@ Const ProtocolFileName     : String = 'protocol.ra';
       MessageEleFileName   : String = 'messages.ele';
       EleFilesFileName     : String = 'files.ele';
       NewsServerFileName   : String = 'nwserver.ele';
+      FtpServerFileName      : String = 'ftpserv.ele';
 
 Const OverrideSysPath: String = '';
 
@@ -470,6 +471,7 @@ type LineCfgRec = record
        Telnet           : ^TelnetRecord;                  { TELNET.ELE contents }
        LimitsInfo       : ^LimitsRecord;                   { LIMITS.RA contents }
        NewsServer       : ^NewsServerRecord;             { NWSSERV.ELE contents }
+       FtpServer        : ^FtpServerRecord;              { FTPSERV.ELE contents }
        MenuContents     : ^MenuRec;                     { Containing 50 records }
        LBarContents     : ^LBarRec;
        HeaderList       : ^TagHeaderList;   { Array100 cont. last 100 file-hdrs }

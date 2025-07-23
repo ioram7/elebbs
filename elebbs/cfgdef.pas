@@ -34,7 +34,7 @@ unit CfgDef;
   This unit should not be compiled in EleBBS
 {$ENDIF}
 
-uses Global, CfgRec, StrPath;
+uses Global, CfgRec, StrPath, BitWise;
 
 Procedure LoadConfigDefaults(var RaConfig: ConfigRecord);
 procedure LoadEleConfigdefaults(var ElConfig: EleConfigRecord);
@@ -43,6 +43,7 @@ Procedure LoadEventsDefaults(var Events: EventRecordArray);
 Procedure LoadOneEventDefault(var Event: EventRecord);
 Procedure LoadTelnetDefaults(var Telnet: TelnetRecord);
 Procedure LoadNewsServerDefaults(var NewsServer: NewsServerRecord);
+Procedure LoadFtpServerDefaults(var FtpServer: FtpServerRecord);
 
 (*-+-*-+-*-+-*-+-*-+-*-+-*-+-*-+-*-+-*-+-*-+-*-+-*-+-*-+-*-+-*-+-*-+-*-+-*-*)
  IMPLEMENTATION
@@ -456,6 +457,26 @@ begin
     end; { with }
 
 end; { proc. LoadNewsServerDefaults }
+
+(*-+-*-+-*-+-*-+-*-+-*-+-*-+-*-+-*-+-*-+-*-+-*-+-*-+-*-+-*-+-*-+-*-+-*-+-*-*)
+
+Procedure LoadFtpServerDefaults(var FtpServer: FtpServerRecord);
+begin
+	FillChar(FtpServer, SizeOf(FtpServerRecord), #00);
+
+	with FtpServer do
+		begin
+			FirstNode    := 245;
+			ServPort     := 21;
+			IndexName00  := '00_index.txt';
+			IndexName02  := '02_index.txt';
+			PasvPorts[0] := 1025;
+			PasvPorts[1] := 65535;
+			SetBit(Attribute, 2);             { Allow downloads }
+			SetBit(Attribute, 3);               { Allow uploads }
+		end; { with }
+
+end; { proc. LoadFtpServerDefaults }
 
 (*-+-*-+-*-+-*-+-*-+-*-+-*-+-*-+-*-+-*-+-*-+-*-+-*-+-*-+-*-+-*-+-*-+-*-+-*-*)
 

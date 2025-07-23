@@ -60,6 +60,10 @@ uses Crt, Global, InOut_U, MenuFunc, DispAns, Support, LineEd, ExecFunc,
         	VpSysLow,
         {$ENDIF}
 
+        {$IFDEF ELEUNIX}
+        	BaseUnix,
+        {$ENDIF}
+
         {$IFNDEF WINGUI}
           EditUser,
           ScrnU,
@@ -106,7 +110,11 @@ begin
 
   { Give the user 2 seconds to look at the nicely status msg }
   {$IFNDEF VirtualPascal}
+    {$IFDEF ELEUNIX}
+    fpSleep(2);
+    {$ELSE}
     Sleep(2000);
+    {$ENDIF}
   {$ELSE}
     SysCtrlSleep(2000);
   {$ENDIF}

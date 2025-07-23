@@ -47,7 +47,7 @@ uses
    Linux,
  {$ELSE}
    Unix,
-   OldLinux,
+   BaseUnix,
  {$ENDIF}
 {$ENDIF}
 
@@ -668,7 +668,8 @@ function GetMicroSeconds: Real;
 {$ENDIF}
 
 {$IFDEF ELEUNIX}
- var TV: TimeVal;
+ var Tv: TimeVal;
+     Tz: TimeZone;
 {$ENDIF}
 
 {$IFDEF VirtualPascal}
@@ -702,8 +703,8 @@ begin
   {$ENDIF}
 
   {$IFDEF UNIX}
-    GetTimeOfDay(Tv);
-    Result := StrToReal(FStr(Tv.sec) + '.' + FStr(tv.usec));
+    FpGetTimeOfDay(@Tv, @Tz);
+    Result := StrToReal(FStr(Tv.tv_sec) + '.' + FStr(Tv.tv_usec));
   {$ENDIF}
 
   {$IFDEF OS2}

@@ -935,16 +935,11 @@ function TakeQuotesOff(Str: String):String;
 begin
 	TakeQuotesOff := Str;
 	
-	if Copy(Str, 1, 1) = '"' then 
-	  begin
-			TakeQuotesOff := Copy(Str, 2, Length(Str)-1)
-		end 
-			else if Copy(Str, Length(Str), 1) = '"' then
-						begin
-				  		TakeQuotesOff := Copy(Str, 1, Length(Str)-1);
-		  			end; { else }
-end; { func. TakeQuotesOff }
-
+	if Copy(Str, 1, 1) = '"'
+	then TakeQuotesOff := Copy(Str, 2, Length(Str)-1)
+	else	if Copy(Str, Length(Str), 1) = '"'
+		then TakeQuotesOff := Copy(Str, 1, Length(Str)-1);
+end;
 {/IORAM}
 var TempLog   : Text;
     TagInfo   : TagFileRecord;
@@ -1368,7 +1363,7 @@ begin
                 end; { if }
             end; { if }
 
-          TagInfo.FoundFirst := false;
+          TagInfo.FoundFirst := false; 
           TaggingObj^.SetTagHeader(Pred(Counter), TagInfo);
         end; { for counter }
 
@@ -1461,9 +1456,11 @@ begin
           DebugObj.DebugLog(logTransfer, 'Download - Deleting from list: ' + TagInfo.Name + ' / ' + LfnName);
           DebugObj.DebugLog(logTransfer, 'Download - Deleting from list: ' + Bool2Str(TagInfo.FoundFirst));
         {$ENDIF}
-
-		if (TagInfo.xFerTime = 0) then 
-		  TagInfo.FoundFirst := false;
+        
+        {IORAM 20070424}
+	if TagInfo.XFerTime = 00 then
+	  TagInfo.FoundFirst := false;
+	{/IORAM}
 
         if TagInfo.FoundFirst then
           begin

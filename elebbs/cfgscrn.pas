@@ -51,6 +51,7 @@ var Events       : ^EventRecordArray;
     OldEvents    : ^EventRecordArray;
     OldTelnet    : ^TelnetRecord;
     OldNewsServer: ^NewsServerRecord;
+    OldFtpServer : ^FtpServerRecord;
 
 
 procedure Error(S: String);
@@ -172,7 +173,7 @@ begin;
  mnuFileMenu^.Items  := 04;
  mnuFileMenu^.Width  := 12;
  mnuFileMenu^.Length := 04;
- mnuFileMenu^.X      := 08;
+ mnuFileMenu^.X      := 03;
  mnuFileMenu^.Y      := 02;
  mnuFileMenu^.HiLight:= 01;
 
@@ -193,7 +194,7 @@ begin;
  mnuSystemMenu^.Items  := 04;
  mnuSystemMenu^.Width  := 12;
  mnuSystemMenu^.Length := 04;
- mnuSystemMenu^.X      := 20;
+ mnuSystemMenu^.X      := 15;
  mnuSystemMenu^.Y      := 02;
  mnuSystemMenu^.HiLight:= 01;
 
@@ -216,12 +217,13 @@ begin;
  AddPullItem(mnuOptionsMenu^.PullInf^[08], ' New users    ', 1600, 'N', '', 1);
  AddPullItem(mnuOptionsMenu^.PullInf^[09], ' System       ', 1700, 'S', '', 1);
  AddPullItem(mnuOptionsMenu^.PullInf^[10], ' Prompts      ', 1800, 'P', '', 1);
- AddPullItem(mnuOptionsMenu^.PullInf^[11], ' Newsserver   ', 3600, 'W', '', 1);
+ AddPullItem(mnuOptionsMenu^.PullInf^[11], ' News server  ', 3600, 'W', '', 1);
+ AddPullItem(mnuOptionsMenu^.PullInf^[12], ' FTP server   ', 3700, 'X', '', 1);
 
- mnuOptionsMenu^.Items  := 11;
+ mnuOptionsMenu^.Items  := 12;
  mnuOptionsMenu^.Width  := 15;
- mnuOptionsMenu^.Length := 11;
- mnuOptionsMenu^.X      := 35;
+ mnuOptionsMenu^.Length := 12;
+ mnuOptionsMenu^.X      := 29;
  mnuOptionsMenu^.Y      := 02;
  mnuOptionsMenu^.HiLight:= 01;
 
@@ -243,7 +245,7 @@ begin;
  mnuModemMenu^.Items  := 4;
  mnuModemMenu^.Width  := 12;
  mnuModemMenu^.Length := 4;
- mnuModemMenu^.X      := 50;
+ mnuModemMenu^.X      := 44;
  mnuModemMenu^.Y      := 02;
  mnuModemMenu^.HiLight:= 01;
 
@@ -273,13 +275,40 @@ begin;
  mnuManagerMenu^.Items  := 12;
  mnuManagerMenu^.Width  := 13;
  mnuManagerMenu^.Length := 12;
- mnuManagerMenu^.X      := 63;
+ mnuManagerMenu^.X      := 57;
  mnuManagerMenu^.Y      := 02;
  mnuManagerMenu^.HiLight:= 01;
 
 
  {$IFDEF WITH_DEBUG}
  DebugObj.DebugLog(logFastScrn, 'Leaving mnuManager');
+ {$ENDIF}
+
+
+
+ {$IFDEF WITH_DEBUG}
+ DebugObj.DebugLog(logFastScrn, 'Initiating mnuTcpIp');
+ {$ENDIF}
+
+ if NOT MemMan.AllocMem(mnuTcpIpMenu^.PullInf, SizeOf(mnuTcpIpMenu^.PullInf^),
+                        'Menu.PullInf^', 'InitSubMenus') then
+      Error('Unable to initialize manager menu (memory error)');
+
+ AddPullItem(mnuTcpIpMenu^.PullInf^[1], ' Telnet ', 3500, 'T', '', 1);
+ AddPullItem(mnuTcpIpMenu^.PullInf^[2], ' News   ', 3600, 'N', '', 1);
+ AddPullItem(mnuTcpIpMenu^.PullInf^[3], ' FTP    ', 3700, 'F', '', 1);
+{AddPullItem(mnuTcpIpMenu^.PullInf^[4], ' Web    ',    0, 'W', '', 1);}
+
+ mnuTcpIpMenu^.Items  :=  3;
+ mnuTcpIpMenu^.Width  :=  9;
+ mnuTcpIpMenu^.Length :=  3;
+ mnuTcpIpMenu^.X      := 69;
+ mnuTcpIpMenu^.Y      := 02;
+ mnuTcpIpMenu^.HiLight:= 01;
+
+
+ {$IFDEF WITH_DEBUG}
+ DebugObj.DebugLog(logFastScrn, 'Leaving mnuTcpIp');
  {$ENDIF}
 end; { proc. InitSubMenus }
 

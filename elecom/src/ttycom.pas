@@ -64,7 +64,7 @@ uses Crt, Strings
          {$IFDEF VER1_0}
             ,Linux
          {$ELSE}
-            ,OldLinux
+            ,BaseUnix
             ,Unix
          {$ENDIF}
          ,LongStr
@@ -188,7 +188,7 @@ begin
   if BlockLen = 0 then EXIT;
   REPEAT
     {$IFDEF ELEUNIX}
-      TmpReads := fdRead(ttyInput, C, SizeOf(c));
+      TmpReads := FpRead(ttyInput, C, SizeOf(c));
     {$ENDIF}
 
     {$IFDEF Win32}
@@ -223,7 +223,7 @@ begin
 
   repeat
     {$IFDEF ELEUNIX}
-      Counter := fdWrite(ttyOutput, BufType[Written], BlockLen - Written);
+      Counter := FpWrite(ttyOutput, BufType[Written], BlockLen - Written);
     {$ENDIF}
 
     {$IFDEF Win32}
@@ -250,7 +250,7 @@ var TmpInt: Longint;
 {$IFDEF ELEUNIX}
 Const ttyIn = 0;
 
-var fds: fdset;
+var fds: tfdset;
 {$ENDIF}
 begin
   if BlockAll then
@@ -267,9 +267,9 @@ begin
 
   {$IFDEF ELEUNIX}
     {-- Try reading a character from remote -------------------------------------}
-    FD_Zero(fds);
-    FD_Set(TtyIn, fds);
-    Com_CharAvail := (Select(ttyIn + 1, @fds, nil, nil, 0) <> 0);
+    fpFD_Zero(fds);
+    fpFD_Set(TtyIn, fds);
+    Com_CharAvail := (fpSelect(ttyIn + 1, @fds, nil, nil, 0) <> 0);
   {$ENDIF}
 end; { func. TTtyObj.Com_CharAvail }
 

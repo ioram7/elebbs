@@ -1,5 +1,5 @@
 {
-    $Id: fbsdsck.pas,v 1.1.1.1 2007/08/23 02:24:05 elebbs Exp $
+    $Id: fbsdsck.pas,v 1.1.1.1 2006/01/19 20:30:35 elebbs Exp $
     This file is part of the Free Pascal run time library.
     Copyright (c) 1993,97 by the Free Pascal development team
 

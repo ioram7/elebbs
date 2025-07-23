@@ -1619,6 +1619,7 @@ begin
   TimeLogFileName    := OpenRaFile('timelog.bbs'); {!!}
   MessageEleFileName := OpenRaFile('messages.ele');
   NewsServerFileName := OpenRaFile('nwserver.ele');
+  FtpServerFileName  := OpenRaFile(FtpServerFileName);
   EleFilesFileName   := OpenRaFile('files.ele');
 end; { proc. InitSystemNames }
 

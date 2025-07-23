@@ -85,6 +85,7 @@ procedure GenerateRdxFiles(AddPath: String; Message: Boolean; Group: Boolean; Sh
 procedure CleanString (var S: String);
 procedure MakeDirectory(S: String);
 procedure EditDirectory(X, Y, Len: Byte; var S: String);
+procedure EditFlags2(var IsOn,IsOff: Byte; OffSwitch: Boolean; X, Y: Byte);
 procedure EditFlags(var IsOn,IsOff: Byte; OffSwitch: Boolean; X, Y: Byte; DisMenu: PullRecord);
 procedure Color_Example(Temp: String; DefColor: Byte);
 
@@ -537,7 +538,7 @@ end; { func. DoSaveChanges }
 
 (*-+-*-+-*-+-*-+-*-+-*-+-*-+-*-+-*-+-*-+-*-+-*-+-*-+-*-+-*-+-*-+-*-+-*-+-*-*)
 
-procedure EditFlags(var IsOn,IsOff: Byte; OffSwitch: Boolean; X, Y: Byte; DisMenu: PullRecord);
+procedure EditFlags2(var IsOn,IsOff: Byte; OffSwitch: Boolean; X, Y: Byte);
 var Menu      : PullRecord;
     Choice    : Word;
     CH        : Char;
@@ -546,7 +547,6 @@ var Menu      : PullRecord;
 begin
   SaveDirect := DirectScrnUpdate;
   DirectscrnUpdate := false;
-  EnDisAbleMenu(DisMenu, False);
 
   New(Menu.PullInf);
   AddPullItem(Menu.PullInf^[01], '#1', 01, #00, 'Press ENTER to toggle flag setting, ESC when done', 1);
@@ -606,7 +606,14 @@ begin
 
   RemoveMenu(Menu);
   Dispose(Menu.PullInf);
+end; { proc. EditFlags2 }
 
+(*-+-*-+-*-+-*-+-*-+-*-+-*-+-*-+-*-+-*-+-*-+-*-+-*-+-*-+-*-+-*-+-*-+-*-+-*-*)
+
+procedure EditFlags(var IsOn,IsOff: Byte; OffSwitch: Boolean; X, Y: Byte; DisMenu: PullRecord);
+begin
+  EnDisAbleMenu(DisMenu, False);
+  EditFlags2(IsOn, IsOff, OffSwitch, X, Y);
   EnDisAbleMenu(DisMenu, True);
 end; { proc. EditFlags }
 

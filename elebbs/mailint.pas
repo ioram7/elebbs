@@ -707,8 +707,18 @@ begin
                                         LineTeller,
                                         ReplyMsgNr,
                                        true) of
-             msgAgain : ; { Nothing }
+             msgAgain : begin;
+                          {$IFDEF WITH_DEBUG}
+                            DebugObj.DebugLog(logMailInt, 'AskForReadMail - got msgAgain from ReadMessage');
+                          {$ENDIF}
+
+                        { Nothing }
+                        end; { msgAgain }
              msgNext  : begin;
+                          {$IFDEF WITH_DEBUG}
+                            DebugObj.DebugLog(logMailInt, 'AskForReadMail - got msgNext from ReadMessage');
+                          {$ENDIF}
+
                           Inc(Counter);
 
                           If Counter>CurMsgsFound then
@@ -721,6 +731,10 @@ begin
                              end; { Last message }
                         end; { MsgNext }
              msgLast  : begin;
+                          {$IFDEF WITH_DEBUG}
+                            DebugObj.DebugLog(logMailInt, 'AskForReadMail - got msgLast from ReadMessage');
+                          {$ENDIF}
+
                           Dec(Counter);
 
                           If Counter < 01 then
@@ -733,10 +747,18 @@ begin
                             end; { Last message }
                         end; { MsgLast }
             msgForward: begin
+                          {$IFDEF WITH_DEBUG}
+                            DebugObj.DebugLog(logMailInt, 'AskForReadMail - got msgForward from ReadMessage');
+                          {$ENDIF}
+
                           GetMessageRecord(TempMSG, MsgFound[Counter].BoardNr, true);
                           ForwardThisMessage(MsgFound[Counter].MsgNr, TempMSG, Exitinfo);
                         end; { if }
              msgReply : begin
+                          {$IFDEF WITH_DEBUG}
+                            DebugObj.DebugLog(logMailInt, 'AskForReadMail - got msgReply from ReadMessage');
+                          {$ENDIF}
+
                           New(EditorInfo, Init(MaxMsgLines));
 
                           ReplyToMsg(EditorInfo^,
@@ -799,6 +821,10 @@ begin
                              end; { Last message }
                         end; { msgReply }
              msgEnter : begin
+                          {$IFDEF WITH_DEBUG}
+                            DebugObj.DebugLog(logMailInt, 'AskForReadMail - got msgEnter from ReadMessage');
+                          {$ENDIF}
+
                           New(EditorInfo, Init(MaxMsgLines));
 
                           WriteMessage(Ra250MsgArea(MsgFound[Counter].BoardNr),
@@ -819,8 +845,18 @@ begin
 
                           Dispose(EditorInfo, Done);
                         end; { msgEnter }
-             msgStop  : BREAK;
+             msgStop  : begin
+                          {$IFDEF WITH_DEBUG}
+                            DebugObj.DebugLog(logMailInt, 'AskForReadMail - got msgStop from ReadMessage');
+                          {$ENDIF}
+
+                          BREAK;
+                        end; { msgStop }
              msgDelete: begin
+                          {$IFDEF WITH_DEBUG}
+                            DebugObj.DebugLog(logMailInt, 'AskForReadMail - got msgDelete from ReadMessage');
+                          {$ENDIF}
+
                             If GlobalCfg^.RaConfig^.ConfirmMsgDeletes then
                              If InputObj^.ralStrYesNoAsk(ralSure) then
                                ProcessAllMessages(True, Counter);
@@ -838,8 +874,26 @@ begin
                                 GOTO EndOfMsgs;
                                end; { Last message }
                           end; { Delete }
-            msgRdReply: ; { Not implemented yet }
-             msgFiles : ; { Not implemented yet }
+            msgRdReply: begin
+                          {$IFDEF WITH_DEBUG}
+                            DebugObj.DebugLog(logMailInt, 'AskForReadMail - got msgRdReply from ReadMessage');
+                          {$ENDIF}
+
+                          { Not implemented yet }
+                        end; { msgRdreply }
+             msgFiles : begin
+                          {$IFDEF WITH_DEBUG}
+                            DebugObj.DebugLog(logMailInt, 'AskForReadMail - got msgFiles from ReadMessage');
+                          {$ENDIF}
+
+                          { Not implemented yet }
+                        end; { msgFiles }
+             else
+               begin
+                          {$IFDEF WITH_DEBUG}
+                            DebugObj.DebugLog(logMailInt, 'AskForReadMail - got unhandled result from ReadMessage');
+                          {$ENDIF}
+               end; { else }
            end; { Case }
 
          UNTIL (Counter>CurMsgsFound);
@@ -1075,9 +1129,25 @@ begin
                else MailReturn := msgNext;
 
             Case MailReturn of
-                msgAgain  : ; { Do nothing }
-                msgNext   : break;
+                msgAgain  : begin
+                            {$IFDEF WITH_DEBUG}
+                            DebugObj.DebugLog(logMailInt, 'DoReadMail - got msgAgain from ReadMessage');
+                            {$ENDIF}
+
+                            { Do nothing }
+                            end;
+                msgNext   : begin
+                            {$IFDEF WITH_DEBUG}
+                            DebugObj.DebugLog(logMailInt, 'DoReadMail - got msgNext from ReadMessage');
+                            {$ENDIF}
+
+                            break;
+                            end;
                 msgLast   : begin
+                            {$IFDEF WITH_DEBUG}
+                            DebugObj.DebugLog(logMailInt, 'DoReadMail - got msgLast from ReadMessage');
+                            {$ENDIF}
+
                               If DoForward then begin
                             {                    MsgRead^.SeekPrior; }
                                                 MsgRead^.SeekPrior;
@@ -1091,9 +1161,17 @@ begin
                                Break;
                             end; { last }
                 msgForward: begin
+                            {$IFDEF WITH_DEBUG}
+                            DebugObj.DebugLog(logMailInt, 'DoReadMail - got msgForward from ReadMessage');
+                            {$ENDIF}
+
                               ForwardThisMessage(MsgRead^.GetMsgNum, MessageInf, Exitinfo);
                             end; { if }
                  msgReply : begin
+                            {$IFDEF WITH_DEBUG}
+                            DebugObj.DebugLog(logMailInt, 'DoReadMail - got msgReply from ReadMessage');
+                            {$ENDIF}
+
                               BoardNr := MessageInf.AreaNum;
                               TempBoard := BoardNr;
 
@@ -1146,6 +1224,10 @@ begin
                                             end; { if }
                             end; { msgReply }
                  msgEdit  : begin
+                            {$IFDEF WITH_DEBUG}
+                            DebugObj.DebugLog(logMailInt, 'DoReadMail - got msgEdit from ReadMessage');
+                            {$ENDIF}
+
                               BoardNr := MessageInf.AreaNum;
                               TempBoard := BoardNr;
 
@@ -1189,7 +1271,13 @@ begin
                                            '',          { orig arestr }
                                            '');         { reply kludge }
                             end; { msgEdit }
-                msgEnter  : WriteMessage(Ra250msgArea(BoardNr),
+                msgEnter  : begin
+                            {$IFDEF WITH_DEBUG}
+                            DebugObj.DebugLog(logMailInt, 'DoReadMail - got msgEnter from ReadMessage');
+                            {$ENDIF}
+
+
+                            WriteMessage(Ra250msgArea(BoardNr),
                                          '',
                                          '',
                                          '',
@@ -1204,8 +1292,19 @@ begin
                                          '',
                                          GetAreaAddress(Ra250MsgArea(BoardNr)),
                                          '', '', '', false, true, '', '', '');
-                msgStop   : Goto EndOfMsgs;
+                            end;
+                msgStop   : begin
+                            {$IFDEF WITH_DEBUG}
+                            DebugObj.DebugLog(logMailInt, 'DoReadMail - got msgStop from ReadMessage');
+                            {$ENDIF}
+
+                            Goto EndOfMsgs;
+                            end;
                 msgDelete : begin
+                            {$IFDEF WITH_DEBUG}
+                            DebugObj.DebugLog(logMailInt, 'DoReadMail - got msgDelete from ReadMessage');
+                            {$ENDIF}
+
                                  If GlobalCfg^.RaConfig^.ConfirmMsgDeletes then
                                   If InputObj^.ralStrYesNoAsk(ralSure) then
                                    DeleteMsg(MessageInf, EleMsgInf, MsgRead^.GetMsgNum, False, Exitinfo);
@@ -1220,8 +1319,18 @@ begin
                                    end; { if }
                                end; { Delete }
                 msgRdReply: begin
+                            {$IFDEF WITH_DEBUG}
+                            DebugObj.DebugLog(logMailInt, 'DoReadMail - got msgRdReply from ReadMessage');
+                            {$ENDIF}
+
                             end; { Start Reading a reply }
-                msgFiles  : ;
+                msgFiles  : begin
+                            {$IFDEF WITH_DEBUG}
+                            DebugObj.DebugLog(logMailInt, 'DoReadMail - got msgFiles from ReadMessage');
+                            {$ENDIF}
+
+                            { nothing }
+                            end;
             End; { Case }
            End; { If }
 

@@ -34,6 +34,7 @@ uses CfgRec;
 procedure ReadModemRA(var Modem: ModemRecord);     { Opens and reads MODEM }
 procedure ReadConfigRA;                           { Opens and reads CONFIG.RA }
 procedure ReadTelnetELE;                         { Opens and reads TELNET.ELE }
+procedure ReadFtpServELE;                       { Opens and reads FTPSERV.ELE }
 
 (*-+-*-+-*-+-*-+-*-+-*-+-*-+-*-+-*-+-*-+-*-+-*-+-*-+-*-+-*-+-*-+-*-+-*-+-*-*)
  IMPLEMENTATION
@@ -106,6 +107,25 @@ begin
 
   {$IFDEF WITH_DEBUG}
      DebugObj.DebugLog(logMain, 'ReadTelnetELE ( end )');
+  {$ENDIF}
+end; { proc. ReadTelnetELE }
+
+(*-+-*-+-*-+-*-+-*-+-*-+-*-+-*-+-*-+-*-+-*-+-*-+-*-+-*-+-*-+-*-+-*-+-*-+-*-*)
+
+procedure ReadFtpServELE;                       { Opens and reads FTPSERV.ELE }
+var Telnet_F: pFileObj;
+begin
+  {$IFDEF WITH_DEBUG}
+     DebugObj.DebugLog(logMain, 'ReadFtpServEle (begin)');
+     DebugObj.DebugLog(logMain, 'FTPSERV.ELE Filename = '+FtpServerFileName);
+  {$ENDIF}
+
+  Config_OpenFile(Telnet_F, FtpServerFileName, 01, ReadMode + DenyWrite, False, True);
+  Config_ReadFile(Telnet_F, LineCfg^.FtpServer^, SizeOf(FtpServerRecord));
+  Config_DoneFile(Telnet_F);
+
+  {$IFDEF WITH_DEBUG}
+     DebugObj.DebugLog(logMain, 'ReadFtpServELE ( end )');
   {$ENDIF}
 end; { proc. ReadTelnetELE }
 

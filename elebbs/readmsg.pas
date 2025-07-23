@@ -1545,6 +1545,10 @@ begin
   until (CH in GoodKeys) OR (MsgRead^.EOM);
 
   {-------------- Let the user know what they have pressed -----------------}
+  {$IFDEF WITH_DEBUG}
+    DebugObj.DebugLog(logMailInt, 'ReadMessage - read chr(' + FStr(ord(CH)) + ') from user');
+  {$ENDIF}
+
   if (LangObj^.ralGetKey(ralAgain1)=CH) then
      begin
        WriteLn(LangObj^.ralGet(ralAgain2));

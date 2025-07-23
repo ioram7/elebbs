@@ -41,9 +41,11 @@ Function  GenFileCRC32(FileName: String): Longint;        { Generate CRC32 from 
  IMPLEMENTATION
 (*-+-*-+-*-+-*-+-*-+-*-+-*-+-*-+-*-+-*-+-*-+-*-+-*-+-*-+-*-+-*-+-*-+-*-+-*-*)
 
+uses
 {$IFDEF WITH_DEBUG}
-uses Debug_U, Global, FileObj;
+Debug_U, Global,
 {$ENDIF}
+FileObj; 
 
 {$R-,S-}
 

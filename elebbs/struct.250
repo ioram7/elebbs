@@ -422,7 +422,7 @@ type
 
                       { Bit 0 : Include in new files scan
                             1 : Include in upload dupe scan
-                                                        2 : Permit long descriptions
+                            2 : Permit long descriptions
                             3 : Area is on CD-ROM
                             4 : All files are FREE
                             5 : Allow DLs not in FDB
@@ -940,6 +940,45 @@ type
     DomainName          : String[120];{ Domainname of messages, emtpy=use ftn }
     FreeSpace           : Array[0..38] of Longint;
   end; { NewsServerRecord }
+
+
+  FtpServerRecord = record
+    MaxSessions         : LongInt;              { maximum concurrent sessions }
+                                                { 0 = server disabled         }
+    FirstNode           : LongInt;              { assign node numbers >= this }
+    ServAddr            : LongInt;              { bind to this interface      }
+    ServPort            : SmallWord;            { listen on this port         }
+    Attribute           : Byte;
+
+                 { Bit 0: Allow sysop to logon   }
+                 { Bit 1: Allow anonymous logons }
+                 { Bit 2: Allow downloads        }
+                 { Bit 3: Allow uploads          }
+                 { Bit 4: Import descriptions    }
+                 { Bit 5: Update USERON.BBS      }
+                 { Bit 6: Block FXP transfers    }
+                 { Bit 7: Allow mixed clients    }
+
+    PasvAddr            : LongInt;        { report fake server address        }
+    PasvPorts           : Array[0..1] of SmallWord; { assign ports in this range }
+    PasvOffset          : SmallWord;      { report fake port (real+offset     }
+    TransferLog         : String;         { file transfer summary log         }
+    IndexName00,                          { short file descriptions for area  }
+    IndexName02         : String;         { long file descriptions for area   }
+    DynIp               : String;         { auto-load PasvAddr from this file }
+    GlobalTxRate,                         { total download rate limit (KB/s)  }
+    SessionTxRate,                   { per-session download rate limit (KB/s) }
+    GlobalRxRate,                         { total upload rate limit (KB/s)    }
+    SessionRxRate       : LongInt;     { per-session upload rate limit (KB/s) }
+    UserSessions,                         { max sessions per logged-in user   }
+    AnonSessions,                         { max anonymous sessions            }
+    UsersPerIP,                           { max logged-in users per IP        }
+    AnonPerIP           : SmallWord;      { max anonymous sessions per IP     }
+    Security            : SmallWord;      { require minimum security level    }
+    Flags,                                { require these flags be set        }
+    NotFlags            : FlagType;       { require these flags not be set    }
+    FreeSpace           : Array[0..956] of Byte;
+  end;
 
 
   NewsGroupStat = record

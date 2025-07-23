@@ -18,7 +18,7 @@
   {$H-}
 {$ENDIF}
 
-{$IFDEF Windows}
+{$IFDEF _Windows_}
   !! ERROR: Async Professional is not compatible with Windows !!
 {$ENDIF}
 

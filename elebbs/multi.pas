@@ -85,7 +85,7 @@ uses Dos;
    {$IFDEF VER1_0_10}
       uses Linux;
    {$ELSE}
-      uses Unix, OldLinux;
+      uses Unix, BaseUnix;
    {$ENDIF}
  {$ENDIF}
 
@@ -129,7 +129,7 @@ begin
    {$IFNDEF ELEUNIX}
      Sleep(10);
    {$ELSE}
-     Select(0, nil, nil, nil, 10);
+     fpSelect(0, nil, nil, nil, 10);
    {$ENDIF}
  {$ENDIF}
 end;
@@ -139,11 +139,7 @@ end;
 
 procedure DoSlice;
 begin
-  {$IFNDEF VirtualPascal}
-     GiveTimeSlice;
-  {$ELSE}
-     SysCtrlSleep(1);
-  {$ENDIF}
+	GiveTimeSlice;
 end; { proc. DoSlice }
 
 (*-+-*-+-*-+-*-+-*-+-*-+-*-+-*-+-*-+-*-+-*-+-*-+-*-+-*-+-*-+-*-+-*-+-*-+-*-*)

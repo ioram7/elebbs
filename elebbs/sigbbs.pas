@@ -36,7 +36,7 @@ UNIT SigBBS;
 uses {$IFDEF VER1_0}
        Linux;
      {$ELSE}
-       OldLinux,
+       BaseUnix,
        Unix;
      {$ENDIF}
 
@@ -100,7 +100,7 @@ begin
   FillChar(MySigSet, SizeOf(MySigSet), 0);
 
   {-- setup the record for the signal handler for this signal ---------------}
-  NewAction^.Handler.SH := @HandleSig;
+  NewAction^.Sa_Handler := @HandleSig;
   NewAction^.Sa_Mask := MySigSet;
   NewAction^.Sa_Flags := 0;
   {$IFNDEF FREEBSD}
@@ -108,9 +108,9 @@ begin
   {$ENDIF}
 
   {-- install the new signal handler ----------------------------------------}
-  SigAction(SigHup, NewAction, OldAction);
+  fpSigAction(SigHup, NewAction, OldAction);
 
-  if LinuxError <> 0 then
+  if fpGetErrNo <> 0 then
     RaLog('!', 'Unable to install SIGHUP signal handler');
 
   {$IFDEF WITH_DEBUG}

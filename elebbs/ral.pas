@@ -350,8 +350,10 @@ begin
   RalCodes := False;
 
   Temp := Copy(RalGet(Nr), 1, 1);
-
   RalGetKey := UpCase(Temp[1]);
+  {$IFDEF WITH_DEBUG}
+     DebugObj.DebugLog(logRAL, '(RAL) ralGetKey - chr(' + FStr(ord(UpCase(Temp[1]))) + ')');
+  {$ENDIF}
 
   RalCodes := OldRalCodes;
 
